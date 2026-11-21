@@ -102,12 +102,16 @@ pub struct Rgb {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../ui/src/lib/bindings/")]
 pub struct Theme {
+    /// Cache key: the Spotify album id, or a hash of the art bytes.
     pub album_key: String,
+    /// At least 4.5:1 contrast against the plinth (`#1E1B18`).
     pub accent: Rgb,
+    /// Text and icons drawn on top of the accent colour.
     pub on_accent: Rgb,
-    pub text: Rgb,
-    pub text_muted: Rgb,
-    pub background: Option<Art>,
+    /// Worn sleeve: the cover with ring wear, rubbed corners and a crease (PNG).
+    pub sleeve: Option<Art>,
+    /// Dusty record with the worn cover as its label, transparent outside the disc (PNG).
+    pub record: Option<Art>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -167,6 +171,32 @@ mod tests {
                 url: "https://i.scdn.co/art.jpg".into(),
             },
             json!({"kind": "url", "url": "https://i.scdn.co/art.jpg"}),
+        );
+    }
+
+    #[test]
+    fn theme_carries_sleeve_and_record_images() {
+        round_trip(
+            &Theme {
+                album_key: "abc123".into(),
+                accent: Rgb {
+                    r: 200,
+                    g: 85,
+                    b: 61,
+                },
+                on_accent: Rgb { r: 0, g: 0, b: 0 },
+                sleeve: Some(Art::File {
+                    path: "C:/cache/sleeve-abc123.png".into(),
+                }),
+                record: None,
+            },
+            json!({
+                "albumKey": "abc123",
+                "accent": {"r": 200, "g": 85, "b": 61},
+                "onAccent": {"r": 0, "g": 0, "b": 0},
+                "sleeve": {"kind": "file", "path": "C:/cache/sleeve-abc123.png"},
+                "record": null
+            }),
         );
     }
 

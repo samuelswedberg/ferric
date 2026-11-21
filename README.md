@@ -11,7 +11,7 @@ Ferric is an always-on-top miniplayer for Windows that takes its colors from the
 ## Features (planned)
 
 - **Zero setup.** Now playing and play/pause/next/previous come straight from Windows media controls.
-- **Themed by the cover.** Blurred-art background, with an accent color picked from the album.
+- **A record and its sleeve.** The album art becomes a worn sleeve, with a dusty record that spins while the music plays. The accent color comes from the album.
 - **Three sizes.** Full (art + queue), Card, and a thin Strip.
 - **Queue.** Shows what's coming up; click a track to jump to it (requires signing in).
 - **Light.** Rust + Tauri, small installer, close to 0% CPU when idle.

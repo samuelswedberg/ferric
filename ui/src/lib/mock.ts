@@ -48,9 +48,8 @@ let state: PlayerState = {
     albumKey: "mock-after-hours",
     accent: { r: 214, g: 68, b: 86 },
     onAccent: { r: 255, g: 255, b: 255 },
-    text: { r: 255, g: 255, b: 255 },
-    textMuted: { r: 190, g: 190, b: 190 },
-    background: null,
+    sleeve: null,
+    record: null,
   },
   mode: "full",
 };

@@ -2,4 +2,24 @@
 import type { Art } from "./Art";
 import type { Rgb } from "./Rgb";
 
-export type Theme = { albumKey: string, accent: Rgb, onAccent: Rgb, text: Rgb, textMuted: Rgb, background: Art | null, };
+export type Theme = { 
+/**
+ * Cache key: the Spotify album id, or a hash of the art bytes.
+ */
+albumKey: string, 
+/**
+ * At least 4.5:1 contrast against the plinth (`#1E1B18`).
+ */
+accent: Rgb, 
+/**
+ * Text and icons drawn on top of the accent colour.
+ */
+onAccent: Rgb, 
+/**
+ * Worn sleeve: the cover with ring wear, rubbed corners and a crease (PNG).
+ */
+sleeve: Art | null, 
+/**
+ * Dusty record with the worn cover as its label, transparent outside the disc (PNG).
+ */
+record: Art | null, };
