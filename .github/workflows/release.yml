@@ -1,0 +1,97 @@
+name: Release installers
+
+# Called by release-please.yml when it creates a release. A tag pushed with
+# GITHUB_TOKEN can't trigger workflows, so there is no tag-push trigger here.
+# Run it by hand (Actions → Release installers → Run workflow) to rebuild a release.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v0.1.0
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v0.1.0
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  windows-installers:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix ui
+
+      - name: Configure updater artifacts
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          $signed = -not [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)
+          $createUpdaterArtifacts = $signed.ToString().ToLowerInvariant()
+          $config = "{`"bundle`":{`"createUpdaterArtifacts`":$createUpdaterArtifacts}}"
+          Set-Content -Path src-tauri/tauri.release.conf.json -Value $config
+          if (-not $signed) {
+            Write-Warning "TAURI_SIGNING_PRIVATE_KEY is not configured; building unsigned installers without updater artifacts."
+          }
+
+      - name: Find GitHub release
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          $releaseId = $null
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            $releaseId = gh api "repos/$env:REPO/releases/tags/$env:TAG" --jq .id 2>$null
+            if ($LASTEXITCODE -eq 0 -and $releaseId) { break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $releaseId) { throw "Release for $env:TAG was not found." }
+          "release_id=$releaseId" >> $env:GITHUB_OUTPUT
+
+      - name: Mark pre-1.0 release as prerelease
+        if: startsWith(inputs.tag, 'v0.')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$env:TAG" --prerelease --repo "${{ github.repository }}"
+
+      - name: Build and upload NSIS and MSI installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          releaseId: ${{ steps.release.outputs.release_id }}
+          tagName: ${{ inputs.tag }}
+          args: --bundles nsis,msi --config src-tauri/tauri.release.conf.json
