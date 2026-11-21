@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     fs,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
@@ -300,7 +301,7 @@ fn prune_cache(cache_dir: &Path) -> Result<(), std::io::Error> {
             Some((modified, entry.path()))
         })
         .collect::<Vec<_>>();
-    files.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+    files.sort_unstable_by_key(|(modified, _)| Reverse(*modified));
     for (_, path) in files.into_iter().skip(50) {
         fs::remove_file(path)?;
     }
