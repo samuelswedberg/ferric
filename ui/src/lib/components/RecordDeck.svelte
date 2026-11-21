@@ -231,7 +231,6 @@
       disabled={!spotifyRunning || songUrl === null}
       tabindex={spotifyRunning && songUrl !== null ? 0 : -1}
       aria-label={trackTitle ? `Open song ${trackTitle} on Spotify` : "Open song on Spotify"}
-      title={trackTitle ? `Song · ${trackTitle} ↗` : undefined}
       onclick={() => openExternal(songUrl)}
     >
       <div class="record-spin" bind:this={spinningEl}>
@@ -254,9 +253,19 @@
         {/if}
       </div>
       <div class="record-rim-light"></div>
-      {#if spotifyRunning && trackTitle}
-        <span class="hover-badge record-badge" class:no-motion={reducedMotion}>
-          Song · {trackTitle} ↗
+      {#if spotifyRunning && songUrl !== null}
+        <span class="hover-scrim record-scrim" class:no-motion={reducedMotion} aria-hidden="true">
+          <svg class="scrim-icon record-icon" width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M9 18V6l11-2v12"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <circle cx="6.5" cy="18" r="2.5" stroke="currentColor" stroke-width="1.8" />
+            <circle cx="17.5" cy="16" r="2.5" stroke="currentColor" stroke-width="1.8" />
+          </svg>
         </span>
       {/if}
     </button>
@@ -269,7 +278,6 @@
     disabled={!spotifyRunning || albumUrl === null}
     tabindex={spotifyRunning && albumUrl !== null ? 0 : -1}
     aria-label={albumName ? `Open album ${albumName} on Spotify` : "Open album on Spotify"}
-    title={albumName ? `Album · ${albumName} ↗` : undefined}
     onclick={() => openExternal(albumUrl)}
   >
     {#if prevSleeveSrc}
@@ -293,9 +301,26 @@
     {:else}
       <div class="sleeve-blank"></div>
     {/if}
-    {#if spotifyRunning && albumName}
-      <span class="hover-badge sleeve-badge" class:no-motion={reducedMotion}>
-        Album · {albumName} ↗
+    {#if spotifyRunning && albumUrl !== null}
+      <span class="hover-scrim sleeve-scrim" class:no-motion={reducedMotion} aria-hidden="true">
+        <svg class="scrim-icon" width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <rect
+            x="4"
+            y="5"
+            width="16"
+            height="18"
+            rx="1.5"
+            stroke="currentColor"
+            stroke-width="1.8"
+          />
+          <path
+            d="M20 8.5a5.5 5.5 0 0 1 0 11"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+          <circle cx="12" cy="14" r="2.5" stroke="currentColor" stroke-width="1.6" />
+        </svg>
       </span>
     {/if}
   </button>
@@ -508,48 +533,46 @@
     cursor: pointer;
   }
 
-  .hover-badge {
+  .hover-scrim {
     position: absolute;
+    inset: 0;
     z-index: 5;
-    padding: 3px 7px;
-    border-radius: 2px;
-    background: rgba(229, 216, 178, 0.94);
-    color: var(--pencil);
-    font-family: "Courier New", monospace;
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1.2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.55);
+    background: rgba(54, 51, 48, 0.56);
+    color: rgba(237, 228, 212, 0.92);
     opacity: 0;
     pointer-events: none;
     transition: opacity 150ms ease;
   }
 
-  .hover-badge.no-motion {
+  .hover-scrim.no-motion {
     transition: none;
   }
 
-  .sleeve-badge {
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    max-width: 212px;
-    text-align: center;
+  .sleeve-scrim {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .record-badge {
-    right: 6px;
-    bottom: 26px;
-    max-width: 116px;
+  .record-scrim {
+    border-radius: 50%;
   }
 
-  .sleeve.interactive:hover .sleeve-badge,
-  .sleeve.interactive:focus-visible .sleeve-badge,
-  .record-hit.interactive:hover .record-badge,
-  .record-hit.interactive:focus-visible .record-badge {
+  .scrim-icon {
+    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.65));
+  }
+
+  .record-icon {
+    position: absolute;
+    right: 34px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .sleeve.interactive:hover .sleeve-scrim,
+  .sleeve.interactive:focus-visible .sleeve-scrim,
+  .record-hit.interactive:hover .record-scrim,
+  .record-hit.interactive:focus-visible .record-scrim {
     opacity: 1;
   }
 
