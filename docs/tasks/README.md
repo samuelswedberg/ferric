@@ -32,8 +32,8 @@ The shortest route to a usable v0.1.0 is T00 → T01 + T04 + T05 + T06 → T08.
 | T00 | `feat/t00-bootstrap` | everything it creates; afterwards only `crates/ferric-core/**` |
 | T01 | `feat/t01-media-watcher` | `crates/ferric-media/**` |
 | T02 | `feat/t02-spotify-auth` | `crates/ferric-spotify/src/auth/**`, `crates/ferric-spotify/src/error.rs` |
-| T03 | `feat/t03-theme-engine` | `crates/ferric-theme/**` |
-| T04 | `feat/t04-ui-full-view` | `ui/src/lib/components/**` (except `modes/`, `onboarding/`), `ui/src/lib/styles/**`, `ui/src/App.svelte` |
+| T03 | `feat/t03-theme-engine` | `crates/ferric-theme/**`, `ui/src/lib/assets/textures/**` |
+| T04 | `feat/t04-ui-full-view` | `ui/src/lib/components/**` (except `modes/`, `queue/`, `onboarding/`), `ui/src/lib/styles/**`, `ui/src/lib/mock-assets/**`, `ui/src/App.svelte` |
 | T05 | `feat/t05-window-shell` | `src-tauri/src/window.rs`, `src-tauri/src/tray.rs`, `src-tauri/tauri.conf.json` (`app.windows`, `app.trayIcon`), `src-tauri/icons/**` |
 | T06 | `ci/t06-release-pipeline` | `.github/workflows/release.yml`, `.github/workflows/release-please.yml`, `release-please-config.json`, `.release-please-manifest.json`, `docs/RELEASING.md` |
 | T07 | `feat/t07-spotify-api` | `crates/ferric-spotify/src/{api,poller,controller}.rs`, `crates/ferric-spotify/src/api/**` |

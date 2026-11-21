@@ -58,12 +58,15 @@ Data flows one way: sources write to the `Store`, the app emits each new state t
 
 ## Visual design
 
-- Background: the cover, downscaled, blurred (about 60 px at display size), darkened to 35% brightness.
-- Accent: the most vivid of the cover's main colors, adjusted to at least 4.5:1 contrast against the background.
-- Art fills the full width, with 12 px rounded corners.
-- Type: Segoe UI Variable. Title 17/600, artist 13/400 at 70% opacity, queue rows 13 px.
-- Motion: 300 ms cross-fade on track change, 200 ms resize between sizes. No animation when the user has asked Windows for reduced motion.
-- Themes: Cover (default), Mono (greyscale), Plain (solid dark).
+"Sleeve and record": a worn album sleeve (the cover art) and a dusty record on a dark, scuffed turntable plinth, at grit level 2. **The full spec, mockups and measurements are in [docs/design/](design/README.md).**
+
+- The album art is printed on a worn sleeve: faded, ring wear, rubbed corners, crease. The theme engine (T03) generates this, the record with the cover as its label, and the grain overlay, for each cover.
+- The record spins at 33⅓ RPM while playing. The tonearm shows progress, lifts on pause, and goes to its rest on stop, when the record slides back into the sleeve.
+- Controls: one recessed bank of icon-only matte keys (previous, play/pause, next, like), a metal-capped slider, and a ribbed volume knob in Full. Scrolling over Card/Strip changes the volume, with a temporary readout.
+- Accent: the most vivid of the cover's main colors, at least 4.5:1 against the plinth (`#1E1B18`). It's the only color that changes per album.
+- Type: Bahnschrift for the title and artist, Courier New for the time, Segoe Print for the handwritten queue. All ship with Windows.
+- Motion respects Windows' reduced-motion setting, and all animation stops while the window is hidden.
+- One look for everyone. The earlier Mono/Plain theme idea is dropped.
 
 ## Milestones
 
