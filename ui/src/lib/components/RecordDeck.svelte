@@ -255,17 +255,28 @@
       <div class="record-rim-light"></div>
       {#if spotifyRunning && songUrl !== null}
         <span class="hover-scrim record-scrim" class:no-motion={reducedMotion} aria-hidden="true">
-          <svg class="scrim-icon record-icon" width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M9 18V6l11-2v12"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <circle cx="6.5" cy="18" r="2.5" stroke="currentColor" stroke-width="1.8" />
-            <circle cx="17.5" cy="16" r="2.5" stroke="currentColor" stroke-width="1.8" />
-          </svg>
+          <span class="scrim-glyph record-glyph">
+            <svg class="scrim-icon" width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M9 18V6l11-2v12"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="6.5" cy="18" r="2.5" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="17.5" cy="16" r="2.5" stroke="currentColor" stroke-width="1.8" />
+            </svg>
+            <svg class="scrim-icon scrim-arrow" width="15" height="15" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M5 11L11.5 4.5M6.5 4.5H11.5V9.5"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
         </span>
       {/if}
     </button>
@@ -303,24 +314,35 @@
     {/if}
     {#if spotifyRunning && albumUrl !== null}
       <span class="hover-scrim sleeve-scrim" class:no-motion={reducedMotion} aria-hidden="true">
-        <svg class="scrim-icon" width="28" height="28" viewBox="0 0 28 28" fill="none">
-          <rect
-            x="4"
-            y="5"
-            width="16"
-            height="18"
-            rx="1.5"
-            stroke="currentColor"
-            stroke-width="1.8"
-          />
-          <path
-            d="M20 8.5a5.5 5.5 0 0 1 0 11"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-          />
-          <circle cx="12" cy="14" r="2.5" stroke="currentColor" stroke-width="1.6" />
-        </svg>
+        <span class="scrim-glyph">
+          <svg class="scrim-icon" width="26" height="26" viewBox="0 0 28 28" fill="none">
+            <rect
+              x="4"
+              y="5"
+              width="16"
+              height="18"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <path
+              d="M20 8.5a5.5 5.5 0 0 1 0 11"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+            <circle cx="12" cy="14" r="2.5" stroke="currentColor" stroke-width="1.6" />
+          </svg>
+          <svg class="scrim-icon scrim-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M5 11L11.5 4.5M6.5 4.5H11.5V9.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
       </span>
     {/if}
   </button>
@@ -558,13 +580,23 @@
     border-radius: 50%;
   }
 
+  .scrim-glyph {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
   .scrim-icon {
     filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.65));
   }
 
-  .record-icon {
+  .scrim-arrow {
+    opacity: 0.9;
+  }
+
+  .record-glyph {
     position: absolute;
-    right: 34px;
+    right: 24px;
     top: 50%;
     transform: translateY(-50%);
   }
