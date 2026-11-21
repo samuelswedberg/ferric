@@ -32,3 +32,6 @@ Thumbs.db
 # Agent worktrees
 .claude/worktrees/
 .claude/settings.local.json
+
+# Local design working files (reference images, explorations)
+design/local/

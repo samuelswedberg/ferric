@@ -56,12 +56,14 @@ pub struct Rgb { pub r: u8, pub g: u8, pub b: u8 }
 
 pub struct Theme {
     pub album_key: String,               // cache key: spotify album id, or a hash of the art bytes
-    pub accent: Rgb,
-    pub on_accent: Rgb,                  // text on top of the accent color
-    pub text: Rgb,
-    pub text_muted: Rgb,
-    pub background: Option<Art>,         // blurred, darkened cover (Art::File)
+    pub accent: Rgb,                     // >= 4.5:1 against the plinth #1E1B18
+    pub on_accent: Rgb,                  // text/icons on top of the accent color
+    pub sleeve: Option<Art>,             // worn sleeve: the cover with ring wear, rubbed corners, crease (Art::File, PNG)
+    pub record: Option<Art>,             // dusty record with the worn cover as its label, transparent outside (Art::File, PNG)
 }
+// The plinth texture, grain overlay and cardboard don't depend on the album: T03 generates
+// them once with design/tools/textures.py and commits them as static PNGs in
+// ui/src/lib/assets/textures/ (plinth.png, grain.png, card.png).
 
 pub enum Mode { Full, Card, Strip }
 ```

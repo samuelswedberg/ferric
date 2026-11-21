@@ -25,7 +25,7 @@ Plugins: `tauri-plugin-global-shortcut`, `tauri-plugin-autostart`. Commands go t
 - Config: `%APPDATA%/dev.ferric.app/config.toml`, created with defaults and comments on first run. Changes on disk reload live (`notify` crate, 300 ms debounce). Invalid TOML → keep the old config and show a toast "config.toml has an error on line N".
 
 ```toml
-theme = "cover"          # cover | mono | plain
+grain = 0.2              # grain + dust overlay opacity, 0 to 0.5
 start_with_windows = false
 hide_when_idle = false   # hide the window after 30 s of nothing playing
 idle_opacity = 0.4
@@ -39,7 +39,7 @@ cycle_mode = "Ctrl+Alt+M"
 ```
 
 - Hotkeys: register on start and re-register on config change. If one fails to register (taken by another app), log it and show a toast naming the hotkey; the others still work.
-- `theme` → emit a `ferric://config` event that the UI uses to set `data-theme` (replacing T09's `?theme=` URL param, which stays as a dev override).
+- `grain` → emit a `ferric://config` event; the UI sets the grain overlay's opacity from it (default 0.2, clamped 0 to 0.5).
 - Idle: after 30 s of `Paused`/`Stopped`, set the window opacity to `idle_opacity` (or hide it if `hide_when_idle`); restore on play.
 - Tray: "Open config file" and "Start with Windows ✓".
 
