@@ -5,4 +5,8 @@ edition = "2021"
 
 [dependencies]
 ferric-core = { path = "../ferric-core" }
+image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "webp"] }
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3.24.0"
