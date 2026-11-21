@@ -28,7 +28,6 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         window.scale_factor().unwrap_or(1.0),
     );
     set_mode(app, restored_mode)?;
-    apply_backdrop(&window);
     register_window_events(window);
     Ok(())
 }
@@ -118,7 +117,9 @@ fn snap_to_work_area(window: &WebviewWindow) -> tauri::Result<()> {
     let position = window.outer_position()?;
     let size = window.inner_size()?;
     let monitor = monitor_for_rect(window, position, size)?;
-    let snapped = snap_position(position, size, monitor.work_area(), SNAP_DISTANCE);
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let snap_distance = logical_to_physical(SNAP_DISTANCE, scale_factor);
+    let snapped = snap_position(position, size, monitor.work_area(), snap_distance);
     if snapped != position {
         window.set_position(Position::Physical(snapped))?;
     }
@@ -196,6 +197,10 @@ fn snap_axis(value: i32, start: i32, end: i32, distance: i32) -> i32 {
     }
 }
 
+fn logical_to_physical(value: i32, scale_factor: f64) -> i32 {
+    (f64::from(value) * scale_factor).round() as i32
+}
+
 fn rectangles_intersect(
     position: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
@@ -220,19 +225,6 @@ fn center_in_work_area(
         area.position.y + (area.size.height.saturating_sub(size.height) / 2) as i32,
     )
 }
-
-#[cfg(windows)]
-fn apply_backdrop(window: &WebviewWindow) {
-    if let Err(mica_error) = window_vibrancy::apply_mica(window, Some(true)) {
-        if let Err(acrylic_error) = window_vibrancy::apply_acrylic(window, Some((30, 27, 24, 220)))
-        {
-            tracing::debug!(%mica_error, %acrylic_error, "native backdrop unavailable");
-        }
-    }
-}
-
-#[cfg(not(windows))]
-fn apply_backdrop(_window: &WebviewWindow) {}
 
 #[cfg(test)]
 mod tests {
@@ -274,6 +266,13 @@ mod tests {
             snap_position(PhysicalPosition::new(-375, 910), size, &work_area, 16),
             PhysicalPosition::new(-360, 920)
         );
+    }
+
+    #[test]
+    fn snap_distance_scales_from_logical_pixels() {
+        assert_eq!(logical_to_physical(SNAP_DISTANCE, 1.0), 16);
+        assert_eq!(logical_to_physical(SNAP_DISTANCE, 1.25), 20);
+        assert_eq!(logical_to_physical(SNAP_DISTANCE, 1.5), 24);
     }
 
     #[test]

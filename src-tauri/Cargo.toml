@@ -22,4 +22,3 @@ tauri-plugin-window-state.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-window-vibrancy.workspace = true
