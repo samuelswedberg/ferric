@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an idea for Ferric
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The problem or the moment where you wished Ferric did something.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Fit
+      options:
+        - label: This is about the miniplayer, not about Spotify itself (library, playlists, audio)
+          required: true

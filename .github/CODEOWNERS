@@ -1,0 +1,5 @@
+# Contracts and release plumbing need the maintainer's review.
+*                          @samuelswedberg
+/crates/ferric-core/       @samuelswedberg
+/docs/CONTRACTS.md         @samuelswedberg
+/.github/                  @samuelswedberg
