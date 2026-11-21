@@ -28,7 +28,7 @@ A new user can go from "Sign in to see your queue" to seeing their queue in abou
 - Push `SpotifyController` into the router **after** `MediaController`.
 - Commands `auth_set_client_id`, `auth_sign_in`, `auth_sign_out`.
 
-**Onboarding UI** (a panel that slides over the Full view; in Card/Strip mode it switches to Full first):
+**Onboarding UI** (a panel that slides over the Full view; in Card/Strip mode it switches to Full first). Visual spec: [`docs/design/onboarding-client-id.png`](../design/onboarding-client-id.png) (step 3). Build the other steps in the same panel style; see [`docs/design/README.md`](../design/README.md) → States.
 1. **Why**: one paragraph: "Ferric works without signing in. To see your queue and like songs, connect your own free Spotify developer app. It takes about 2 minutes, and your data never leaves your PC."
 2. **Create the app**: numbered steps with a button "Open Spotify Developer Dashboard" (opens `https://developer.spotify.com/dashboard`). Show the exact redirect URI `http://127.0.0.1:8898/callback` with a copy button, and say to tick "Web API". (Check the current dashboard wording and update the copy to match.)
 3. **Paste the client ID**: input + Save → `auth_set_client_id`. Show validation errors inline.

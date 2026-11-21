@@ -60,7 +60,8 @@ Data flows one way: sources write to the `Store`, the app emits each new state t
 
 - Background: the cover, downscaled, blurred (about 60 px at display size), darkened to 35% brightness.
 - Accent: the most vivid of the cover's main colors, adjusted to at least 4.5:1 contrast against the background.
-- Art fills the full width, with 12 px rounded corners.
+- Art: 216 px centered in Full (leaving room for the queue), 88 px in Card, 24 px in Strip, with 12 / 8 / 4 px rounded corners.
+- Mockups and exact measurements: [docs/design/](design/README.md).
 - Type: Segoe UI Variable. Title 17/600, artist 13/400 at 70% opacity, queue rows 13 px.
 - Motion: 300 ms cross-fade on track change, 200 ms resize between sizes. No animation when the user has asked Windows for reduced motion.
 - Themes: Cover (default), Mono (greyscale), Plain (solid dark).
