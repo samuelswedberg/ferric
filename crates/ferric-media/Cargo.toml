@@ -1,0 +1,9 @@
+[package]
+name = "ferric-media"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait.workspace = true
+ferric-core = { path = "../ferric-core" }
+thiserror.workspace = true

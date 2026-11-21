@@ -1,0 +1,11 @@
+[package]
+name = "ferric-spotify"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait.workspace = true
+ferric-core = { path = "../ferric-core" }
+rspotify = "0.16.1"
+thiserror.workspace = true
+tokio.workspace = true
