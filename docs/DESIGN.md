@@ -13,7 +13,7 @@ An always-on-top Spotify miniplayer for Windows. Ferric is a **remote control** 
 
 - The track updates within 200 ms of Spotify changing tracks.
 - Under 60 MB of memory and close to 0% CPU when idle.
-- Colors come from the album art: a blurred cover background, an accent color, cross-fades between tracks.
+- The album art becomes a worn sleeve and a record label; the accent color comes from the cover; cross-fades between tracks.
 - Three sizes: Full 360×520, Card 360×120, Strip 360×36.
 - Open source (MIT OR Apache-2.0). A person can install it and have it working in under a minute.
 
@@ -30,7 +30,7 @@ An always-on-top Spotify miniplayer for Windows. Ferric is a **remote control** 
                                                         ├──▶ ferric-core::Store (PlayerState) ──(Tauri event)──▶ ui/
  Spotify Web API ◀──(rspotify, polling)──▶ ferric-spotify ┘            ▲                                        │
                                                                        │                                        │
-                                       ferric-theme (accent + bg) ─────┘          commands ◀────────────────────┘
+                               ferric-theme (accent, sleeve, record) ─┘          commands ◀────────────────────┘
                                                                                      │
                                                        src-tauri router ─▶ Controller (media first, then spotify)
 ```
@@ -40,7 +40,7 @@ An always-on-top Spotify miniplayer for Windows. Ferric is a **remote control** 
 | `crates/ferric-core` | Shared types, the `Store`, the `Controller` trait. No I/O. **The contracts.** |
 | `crates/ferric-media` | Windows SMTC watcher + `MediaController` (play/pause/next/prev). |
 | `crates/ferric-spotify` | PKCE auth, token storage, Web API client, queue poller, `SpotifyController`. |
-| `crates/ferric-theme` | Album art → `Theme` (accent, text colors, blurred background file). |
+| `crates/ferric-theme` | Album art → `Theme` (accent, worn sleeve and record images). |
 | `src-tauri` | The app: window, tray, hotkeys, config, wiring, command router, IPC. |
 | `ui` | Svelte 5 + TS front end. It only draws `PlayerState` and calls commands. |
 
