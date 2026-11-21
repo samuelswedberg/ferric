@@ -1,14 +1,26 @@
 name: Release installers
 
+# Called by release-please.yml when it creates a release. A tag pushed with
+# GITHUB_TOKEN can't trigger workflows, so there is no tag-push trigger here.
+# Run it by hand (Actions → Release installers → Run workflow) to rebuild a release.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v0.1.0
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v0.1.0
+        required: true
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -16,8 +28,12 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
@@ -50,22 +66,23 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           $releaseId = $null
           for ($attempt = 1; $attempt -le 6; $attempt++) {
-            $releaseId = gh api "repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}" --jq .id 2>$null
+            $releaseId = gh api "repos/$env:REPO/releases/tags/$env:TAG" --jq .id 2>$null
             if ($LASTEXITCODE -eq 0 -and $releaseId) { break }
             Start-Sleep -Seconds 5
           }
-          if (-not $releaseId) { throw "Release for ${{ github.ref_name }} was not found." }
+          if (-not $releaseId) { throw "Release for $env:TAG was not found." }
           "release_id=$releaseId" >> $env:GITHUB_OUTPUT
 
       - name: Mark pre-1.0 release as prerelease
-        if: startsWith(github.ref_name, 'v0.')
+        if: startsWith(inputs.tag, 'v0.')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "${{ github.ref_name }}" --prerelease
+        run: gh release edit "$env:TAG" --prerelease --repo "${{ github.repository }}"
 
       - name: Build and upload NSIS and MSI installers
         uses: tauri-apps/tauri-action@v0
@@ -76,5 +93,5 @@ jobs:
         with:
           projectPath: .
           releaseId: ${{ steps.release.outputs.release_id }}
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ inputs.tag }}
           args: --bundles nsis,msi --config src-tauri/tauri.release.conf.json
