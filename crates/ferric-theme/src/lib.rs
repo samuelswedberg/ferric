@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     collections::HashMap,
     fs::{self, File},
     io::{self, BufRead, BufReader, Write},
@@ -241,7 +242,7 @@ fn pick_accent(image: &RgbImage) -> Rgb {
             )
         })
         .collect();
-    colors.sort_unstable_by(|left, right| right.1.cmp(&left.1));
+    colors.sort_unstable_by_key(|color| Reverse(color.1));
 
     colors
         .into_iter()
