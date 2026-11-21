@@ -1,0 +1,42 @@
+:root {
+  --plinth: #1e1b18;
+  --ink: #ede4d4;
+  --ink-muted: #b8ac98;
+  --printed: rgba(217, 207, 192, 0.65);
+  --printed-icon: rgba(217, 207, 192, 0.85);
+  --key-top: #403c37;
+  --key-bottom: #2a2622;
+  --key-down-top: #2e2a26;
+  --key-down-bottom: #221f1c;
+  --tray: #0d0b0a;
+  --accent: #b3b3b3;
+  --on-accent: #1e1b18;
+  --volume: rgba(217, 207, 192, 0.7);
+  --pencil: #2f2a26;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--ink);
+  font-family: "Bahnschrift", "Segoe UI Variable", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+button:focus-visible,
+[role="slider"]:focus-visible {
+  outline: 1px solid var(--printed);
+  outline-offset: 2px;
+}

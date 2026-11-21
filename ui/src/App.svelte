@@ -1,38 +1,67 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { PlayerState } from "./lib/bindings/PlayerState";
-  import { getState, subscribeState } from "./lib/ipc";
+  import "./lib/styles/tokens.css";
+  import type { Rgb } from "./lib/bindings/Rgb";
+  import FullView from "./lib/components/FullView.svelte";
+  import { playerStore } from "./lib/state.svelte";
 
-  let state: PlayerState | null = null;
-  let error: string | null = null;
+  function rgbCss(rgb: Rgb): string {
+    return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+  }
+
+  const accentCss = $derived(
+    playerStore.playerState?.theme ? rgbCss(playerStore.playerState.theme.accent) : "#B3B3B3",
+  );
+  const onAccentCss = $derived(
+    playerStore.playerState?.theme ? rgbCss(playerStore.playerState.theme.onAccent) : "#1E1B18",
+  );
+
+  function onGlobalKeyDown(event: KeyboardEvent): void {
+    const target = event.target;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement
+    ) {
+      return;
+    }
+
+    const state = playerStore.playerState;
+    if (!state) return;
+
+    if (event.code === "Space") {
+      // Avoid double-triggering when a button already has focus
+      if (target instanceof HTMLButtonElement) return;
+      event.preventDefault();
+      if (!state.spotifyRunning) {
+        void playerStore.runOpenSpotify();
+      } else {
+        void playerStore.runCommand({ type: "playPause" });
+      }
+      return;
+    }
+
+    if (!state.spotifyRunning) return;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      void playerStore.runCommand({ type: "previous" });
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      void playerStore.runCommand({ type: "next" });
+    } else if (event.key === "ArrowUp" && state.volumePct !== null) {
+      event.preventDefault();
+      const next = Math.min(100, Math.round((state.volumePct + 5) / 5) * 5);
+      void playerStore.runCommand({ type: "setVolume", pct: next });
+    } else if (event.key === "ArrowDown" && state.volumePct !== null) {
+      event.preventDefault();
+      const next = Math.max(0, Math.round((state.volumePct - 5) / 5) * 5);
+      void playerStore.runCommand({ type: "setVolume", pct: next });
+    }
+  }
 
   onMount(() => {
-    let active = true;
-    let unlisten: (() => void) | undefined;
-
-    void getState()
-      .then((initialState) => {
-        if (active) state = initialState;
-      })
-      .catch((cause: unknown) => {
-        if (active) error = cause instanceof Error ? cause.message : String(cause);
-      });
-
-    void subscribeState((nextState) => {
-      if (active) state = nextState;
-    })
-      .then((stop) => {
-        if (active) unlisten = stop;
-        else stop();
-      })
-      .catch((cause: unknown) => {
-        if (active) error = cause instanceof Error ? cause.message : String(cause);
-      });
-
-    return () => {
-      active = false;
-      unlisten?.();
-    };
+    return playerStore.init();
   });
 </script>
 
@@ -40,46 +69,34 @@
   <title>Ferric</title>
 </svelte:head>
 
-<main>
-  {#if error}
-    <p role="alert">{error}</p>
-  {:else if state}
-    <pre>{JSON.stringify(state, null, 2)}</pre>
-  {:else}
-    <p>Loading player state…</p>
+<svelte:window onkeydown={onGlobalKeyDown} />
+
+<div
+  class="app-shell"
+  style="
+    --accent: {accentCss};
+    --on-accent: {onAccentCss};
+    transition: {playerStore.reducedMotion ? 'none' : 'color 300ms ease'};
+  "
+>
+  {#if playerStore.playerState}
+    <FullView
+      state={playerStore.playerState}
+      positionMs={playerStore.displayPositionMs}
+      toastMessage={playerStore.toastMessage}
+      isHidden={playerStore.isHidden}
+      reducedMotion={playerStore.reducedMotion}
+    />
   {/if}
-</main>
+</div>
 
 <style>
-  :global(*) {
-    box-sizing: border-box;
-  }
-
-  :global(html) {
-    color-scheme: dark;
-    background: #121212;
-    font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
-  }
-
-  :global(body) {
-    margin: 0;
-  }
-
-  main {
-    min-height: 100vh;
-    padding: 1rem;
-    color: #f5f5f5;
-    background: #121212;
-  }
-
-  pre {
-    margin: 0;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-    font: 12px/1.45 "Cascadia Mono", Consolas, monospace;
-  }
-
-  [role="alert"] {
-    color: #ffb4ab;
+  .app-shell {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
   }
 </style>
