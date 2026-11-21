@@ -2,6 +2,7 @@
 /target/
 **/target/
 **/*.rs.bk
+*.pdb
 
 # Tauri
 src-tauri/gen/schemas/
