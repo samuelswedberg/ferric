@@ -45,6 +45,21 @@
   const sleeveSrc = $derived(resolveArtSrc(state.theme?.sleeve));
   const fallbackArtSrc = $derived(resolveArtSrc(track?.art));
   const recordSrc = $derived(resolveArtSrc(state.theme?.record));
+
+  const albumName = $derived(spotifyRunning ? (track?.album ?? track?.title ?? null) : null);
+  const trackTitle = $derived(spotifyRunning ? (track?.title ?? null) : null);
+  const songUrl = $derived.by(() => {
+    if (!spotifyRunning || !track) return null;
+    if (track.spotifyId) {
+      return `https://open.spotify.com/track/${encodeURIComponent(track.spotifyId)}`;
+    }
+    return `https://open.spotify.com/search/${encodeURIComponent(`${track.title} ${track.artists.join(" ")}`)}`;
+  });
+  const albumUrl = $derived.by(() => {
+    if (!spotifyRunning || !track) return null;
+    const query = `${track.album ?? track.title} ${track.artists[0] ?? ""}`.trim();
+    return `https://open.spotify.com/search/${encodeURIComponent(query)}/albums`;
+  });
 </script>
 
 <main
@@ -60,6 +75,10 @@
     {sleeveSrc}
     {fallbackArtSrc}
     {recordSrc}
+    {albumName}
+    {trackTitle}
+    {albumUrl}
+    {songUrl}
     {progress}
     {isHidden}
     {reducedMotion}

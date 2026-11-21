@@ -8,6 +8,10 @@
     sleeveSrc: string | null;
     fallbackArtSrc: string | null;
     recordSrc: string | null;
+    albumName: string | null;
+    trackTitle: string | null;
+    albumUrl: string | null;
+    songUrl: string | null;
     progress: number;
     isHidden: boolean;
     reducedMotion: boolean;
@@ -19,10 +23,19 @@
     sleeveSrc,
     fallbackArtSrc,
     recordSrc,
+    albumName,
+    trackTitle,
+    albumUrl,
+    songUrl,
     progress,
     isHidden,
     reducedMotion,
   }: Props = $props();
+
+  function openExternal(url: string | null): void {
+    if (!url) return;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   let spinningEl: HTMLDivElement | undefined = $state();
   let spinAnim: Animation | null = null;
@@ -123,7 +136,7 @@
 
     const anim = el.animate(
       [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
-      { duration: 1800, iterations: Infinity, easing: "linear" },
+      { duration: 3600, iterations: Infinity, easing: "linear" },
     );
     anim.playbackRate = 0;
     anim.pause();
@@ -205,35 +218,60 @@
   );
 </script>
 
-<div class="deck" aria-hidden="true">
+<div class="deck">
   <div
     class="record-slide"
     class:slid-in={!isOut}
     class:no-motion={reducedMotion}
   >
-    <div class="record-spin" bind:this={spinningEl}>
-      {#if prevRecordSrc}
-        <img class="record-img prev" src={prevRecordSrc} alt="" draggable="false" />
+    <button
+      type="button"
+      class="record-hit"
+      class:interactive={spotifyRunning && songUrl !== null}
+      disabled={!spotifyRunning || songUrl === null}
+      tabindex={spotifyRunning && songUrl !== null ? 0 : -1}
+      aria-label={trackTitle ? `Open song ${trackTitle} on Spotify` : "Open song on Spotify"}
+      title={trackTitle ? `Song · ${trackTitle} ↗` : undefined}
+      onclick={() => openExternal(songUrl)}
+    >
+      <div class="record-spin" bind:this={spinningEl}>
+        {#if prevRecordSrc}
+          <img class="record-img prev" src={prevRecordSrc} alt="" draggable="false" />
+        {/if}
+        {#if activeRecordSrc}
+          <img
+            class="record-img"
+            class:fade-in={recordFading && !reducedMotion}
+            src={activeRecordSrc}
+            alt=""
+            draggable="false"
+          />
+        {:else}
+          <div class="record-fallback">
+            <div class="record-label-fallback"></div>
+            <div class="record-spindle"></div>
+          </div>
+        {/if}
+      </div>
+      <div class="record-rim-light"></div>
+      {#if spotifyRunning && trackTitle}
+        <span class="hover-badge record-badge" class:no-motion={reducedMotion}>
+          Song · {trackTitle} ↗
+        </span>
       {/if}
-      {#if activeRecordSrc}
-        <img
-          class="record-img"
-          class:fade-in={recordFading && !reducedMotion}
-          src={activeRecordSrc}
-          alt=""
-          draggable="false"
-        />
-      {:else}
-        <div class="record-fallback">
-          <div class="record-label-fallback"></div>
-          <div class="record-spindle"></div>
-        </div>
-      {/if}
-    </div>
-    <div class="record-rim-light"></div>
+    </button>
   </div>
 
-  <div class="sleeve">
+  <button
+    type="button"
+    class="sleeve"
+    class:interactive={spotifyRunning && albumUrl !== null}
+    disabled={!spotifyRunning || albumUrl === null}
+    tabindex={spotifyRunning && albumUrl !== null ? 0 : -1}
+    aria-label={albumName ? `Open album ${albumName} on Spotify` : "Open album on Spotify"}
+    title={albumName ? `Album · ${albumName} ↗` : undefined}
+    onclick={() => openExternal(albumUrl)}
+  >
     {#if prevSleeveSrc}
       <img
         class="sleeve-img prev"
@@ -255,7 +293,12 @@
     {:else}
       <div class="sleeve-blank"></div>
     {/if}
-  </div>
+    {#if spotifyRunning && albumName}
+      <span class="hover-badge sleeve-badge" class:no-motion={reducedMotion}>
+        Album · {albumName} ↗
+      </span>
+    {/if}
+  </button>
 
   <svg
     class="tonearm-layer"
@@ -263,6 +306,7 @@
     height="260"
     viewBox="0 0 360 260"
     fill="none"
+    aria-hidden="true"
   >
     <defs>
       <linearGradient id="arm-rest-grad" x1="0" y1="0" x2="0" y2="1">
@@ -353,6 +397,23 @@
     transition: none;
   }
 
+  .record-hit {
+    position: relative;
+    width: 212px;
+    height: 212px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    pointer-events: none;
+    display: block;
+  }
+
+  .record-hit.interactive {
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
   .record-spin {
     position: relative;
     width: 212px;
@@ -433,10 +494,63 @@
     top: 22px;
     width: 232px;
     height: 232px;
+    padding: 0;
+    border: 0;
     transform: rotate(-2deg);
     box-shadow: 6px 8px 14px rgba(0, 0, 0, 0.7);
     overflow: hidden;
     background: #2b2621;
+    pointer-events: none;
+  }
+
+  .sleeve.interactive {
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  .hover-badge {
+    position: absolute;
+    z-index: 5;
+    padding: 3px 7px;
+    border-radius: 2px;
+    background: rgba(229, 216, 178, 0.94);
+    color: var(--pencil);
+    font-family: "Courier New", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms ease;
+  }
+
+  .hover-badge.no-motion {
+    transition: none;
+  }
+
+  .sleeve-badge {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    max-width: 212px;
+    text-align: center;
+  }
+
+  .record-badge {
+    right: 6px;
+    bottom: 26px;
+    max-width: 116px;
+  }
+
+  .sleeve.interactive:hover .sleeve-badge,
+  .sleeve.interactive:focus-visible .sleeve-badge,
+  .record-hit.interactive:hover .record-badge,
+  .record-hit.interactive:focus-visible .record-badge {
+    opacity: 1;
   }
 
   .sleeve-img {
