@@ -25,6 +25,14 @@ impl Controller for MediaController {
     }
 
     async fn execute(&self, _cmd: &Command) -> Result<Handled, ControlError> {
-        Ok(Handled::Unsupported)
+        #[cfg(windows)]
+        {
+            crate::windows::execute(_cmd).await
+        }
+
+        #[cfg(not(windows))]
+        {
+            Ok(Handled::Unsupported)
+        }
     }
 }
