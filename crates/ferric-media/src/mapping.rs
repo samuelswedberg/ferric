@@ -49,9 +49,21 @@ pub(crate) enum PlaybackStatus {
     Other,
 }
 
-pub(crate) fn map_position(ticks_100ns: i64, now: SystemTime) -> Position {
+/// 100 ns ticks between the WinRT epoch (1601-01-01) and the Unix epoch.
+const WINRT_TO_UNIX_TICKS: i64 = 116_444_736_000_000_000;
+
+/// Converts a WinRT `DateTime::UniversalTime` (100 ns ticks since 1601-01-01 UTC)
+/// to a `SystemTime`. Returns `None` for unset (zero) or pre-1970 values.
+pub(crate) fn winrt_time_to_system_time(universal_time: i64) -> Option<SystemTime> {
+    let since_unix = u64::try_from(universal_time.checked_sub(WINRT_TO_UNIX_TICKS)?).ok()?;
+    Some(UNIX_EPOCH + std::time::Duration::from_nanos(since_unix.saturating_mul(100)))
+}
+
+/// `ticks_100ns` is the SMTC position, which is valid as of `sampled_at`
+/// (the timeline's `LastUpdatedTime`), not as of now.
+pub(crate) fn map_position(ticks_100ns: i64, sampled_at: SystemTime) -> Position {
     let ms = u64::try_from(ticks_100ns).unwrap_or_default() / 10_000;
-    let sampled_at_unix_ms = now
+    let sampled_at_unix_ms = sampled_at
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
@@ -133,6 +145,22 @@ mod tests {
                 sampled_at_unix_ms: 1234,
             }
         );
+    }
+
+    #[test]
+    fn winrt_time_converts_to_unix_time() {
+        // 2026-01-01T00:00:00Z = 1_767_225_600 s after the Unix epoch.
+        let ticks = 116_444_736_000_000_000 + 1_767_225_600 * 10_000_000;
+        assert_eq!(
+            winrt_time_to_system_time(ticks),
+            Some(UNIX_EPOCH + Duration::from_secs(1_767_225_600))
+        );
+    }
+
+    #[test]
+    fn unset_or_pre_unix_winrt_time_is_none() {
+        assert_eq!(winrt_time_to_system_time(0), None);
+        assert_eq!(winrt_time_to_system_time(116_444_735_999_999_999), None);
     }
 
     #[test]

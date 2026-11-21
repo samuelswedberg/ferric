@@ -26,7 +26,10 @@ use windows::{
 };
 
 use crate::{
-    mapping::{map_playback, map_position, map_track, MediaMetadata, PlaybackStatus},
+    mapping::{
+        map_playback, map_position, map_track, winrt_time_to_system_time, MediaMetadata,
+        PlaybackStatus,
+    },
     MediaError,
 };
 
@@ -101,15 +104,11 @@ pub(crate) async fn run(store: Store, art_cache_dir: PathBuf) -> Result<(), Medi
         Ok(())
     }))?;
 
-    let result = async {
-        let mut session = find_spotify(&manager)?
-            .map(|session| Session::subscribe(session, tx.clone()))
-            .transpose()?;
-        if let Some(session) = &session {
-            refresh(&store, &session.inner, &art_cache_dir).await?;
-        } else {
-            mark_not_running(&store);
-        }
+    // Errors inside the loop are logged and retried, never returned: a transient WinRT failure
+    // (for example Spotify closing mid-read) must not stop media updates for the app's lifetime.
+    let result: Result<(), MediaError> = async {
+        let mut session: Option<Session> = None;
+        let _ = tx.send(Event::SessionsChanged);
 
         loop {
             let event = if session.is_some() {
@@ -123,28 +122,55 @@ pub(crate) async fn run(store: Store, art_cache_dir: PathBuf) -> Result<(), Medi
 
             match event {
                 Some(Event::SessionsChanged) => {
-                    session = find_spotify(&manager)?
-                        .map(|session| Session::subscribe(session, tx.clone()))
-                        .transpose()?;
-                    if let Some(session) = &session {
-                        refresh(&store, &session.inner, &art_cache_dir).await?;
-                    } else {
-                        mark_not_running(&store);
+                    let found = match find_spotify(&manager) {
+                        Ok(found) => found,
+                        Err(error) => {
+                            // Keep the current session; the next event or the 1 s retry tries again.
+                            tracing::warn!(%error, "could not list media sessions");
+                            continue;
+                        }
+                    };
+                    session = match found
+                        .map(|found| Session::subscribe(found, tx.clone()))
+                        .transpose()
+                    {
+                        Ok(subscribed) => subscribed,
+                        Err(error) => {
+                            // With no session the loop re-checks every second.
+                            tracing::warn!(%error, "could not subscribe to the Spotify session");
+                            None
+                        }
+                    };
+                    match &session {
+                        Some(current) => {
+                            if let Err(error) =
+                                refresh(&store, &current.inner, &art_cache_dir).await
+                            {
+                                tracing::warn!(%error, "could not refresh Spotify media state");
+                            }
+                        }
+                        None => mark_not_running(&store),
                     }
                 }
                 Some(Event::SessionChanged) => {
                     if let Some(current) = &session {
                         // A closing session can signal once before it disappears. Re-checking the
                         // manager keeps the last track while moving playback to Stopped.
-                        if find_spotify(&manager)?.is_some() {
-                            if let Err(error) =
-                                refresh(&store, &current.inner, &art_cache_dir).await
-                            {
-                                tracing::warn!(%error, "could not refresh Spotify media state");
+                        match find_spotify(&manager) {
+                            Ok(Some(_)) => {
+                                if let Err(error) =
+                                    refresh(&store, &current.inner, &art_cache_dir).await
+                                {
+                                    tracing::warn!(%error, "could not refresh Spotify media state");
+                                }
                             }
-                        } else {
-                            session = None;
-                            mark_not_running(&store);
+                            Ok(None) => {
+                                session = None;
+                                mark_not_running(&store);
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "could not list media sessions");
+                            }
                         }
                     }
                 }
@@ -237,10 +263,12 @@ async fn refresh(store: &Store, session: &WinSession, cache_dir: &Path) -> Resul
         WinPlaybackStatus::Paused => PlaybackStatus::Paused,
         _ => PlaybackStatus::Other,
     };
-    let position = map_position(
-        session.GetTimelineProperties()?.Position()?.Duration,
-        SystemTime::now(),
-    );
+    // The SMTC position is valid as of LastUpdatedTime, which Spotify only moves on
+    // play/pause/seek, so it must be the sample time for the UI's extrapolation.
+    let timeline = session.GetTimelineProperties()?;
+    let sampled_at = winrt_time_to_system_time(timeline.LastUpdatedTime()?.UniversalTime)
+        .unwrap_or_else(SystemTime::now);
+    let position = map_position(timeline.Position()?.Duration, sampled_at);
 
     store.update(|state| {
         state.spotify_running = true;
