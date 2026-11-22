@@ -1119,6 +1119,7 @@ dependencies = [
  "async-trait",
  "ferric-core",
  "ferric-media",
+ "ferric-spotify",
  "ferric-theme",
  "reqwest 0.12.28",
  "tauri",

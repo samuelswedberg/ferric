@@ -39,7 +39,7 @@ export async function authSetClientId(clientId: string): Promise<void> {
 
 export async function authSignIn(): Promise<void> {
   if (isTauri) return invoke<void>("auth_sign_in");
-  mockBackend.signIn();
+  await mockBackend.signIn();
 }
 
 export async function authSignOut(): Promise<void> {

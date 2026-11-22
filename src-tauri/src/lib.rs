@@ -1,4 +1,5 @@
 mod app;
+mod auth;
 mod commands;
 mod router;
 mod theming;
@@ -25,6 +26,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            auth::auth_set_client_id,
+            auth::auth_sign_in,
+            auth::auth_sign_out,
             commands::get_state,
             commands::open_spotify,
             commands::send_command,

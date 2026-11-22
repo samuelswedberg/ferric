@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ferric_core::{model::Mode, store::Store};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -35,6 +37,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let card = mode_item(app, "mode-card", "Card", current_mode == Mode::Card)?;
     let strip = mode_item(app, "mode-strip", "Strip", current_mode == Mode::Strip)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let sign_out = MenuItem::with_id(app, "sign-out", "Sign out", true, None::<&str>)?;
+    let account_separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -46,6 +50,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &card,
             &strip,
             &separator,
+            &sign_out,
+            &account_separator,
             &quit,
         ],
     )?;
@@ -110,9 +116,24 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         "mode-full" => change_mode(app, Mode::Full),
         "mode-card" => change_mode(app, Mode::Card),
         "mode-strip" => change_mode(app, Mode::Strip),
+        "sign-out" => sign_out(app),
         "quit" => app.exit(0),
         _ => {}
     }
+}
+
+fn sign_out(app: &AppHandle) {
+    let Some(auth) = app
+        .try_state::<crate::auth::AuthState>()
+        .map(|state| Arc::clone(state.inner()))
+    else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = auth.sign_out().await {
+            tracing::warn!(%error, "failed to sign out from the tray");
+        }
+    });
 }
 
 fn toggle_window(app: &AppHandle) {

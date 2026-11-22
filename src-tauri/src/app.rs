@@ -29,8 +29,6 @@ pub fn setup(app: &mut tauri::App) -> anyhow::Result<()> {
     let store = app.state::<Store>().inner().clone();
     let (queue_visible, _) = watch::channel(false);
     app.manage(queue_visible);
-    app.manage(Router::new(vec![Arc::new(MediaController::new())]));
-
     spawn_media_watcher(store.clone(), art_cache_dir.clone())?;
 
     let emitter_store = store.clone();
@@ -44,9 +42,17 @@ pub fn setup(app: &mut tauri::App) -> anyhow::Result<()> {
         .await;
     });
 
-    tauri::async_runtime::spawn(crate::theming::run(store, art_cache_dir));
+    tauri::async_runtime::spawn(crate::theming::run(store.clone(), art_cache_dir));
 
     // T10: spotify auth + poller here
+    let queue_visible_rx = app.state::<watch::Sender<bool>>().subscribe();
+    let auth = crate::auth::setup(store.clone(), queue_visible_rx);
+    let spotify = ferric_spotify::SpotifyController::new(store, Arc::clone(&auth));
+    app.manage(auth);
+    app.manage(Router::new(vec![
+        Arc::new(MediaController::new()),
+        Arc::new(spotify),
+    ]));
 
     Ok(())
 }
