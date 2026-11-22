@@ -81,12 +81,14 @@ pub async fn run(store: Store, auth: Arc<Authenticator>, mut visible: watch::Rec
         if track_changed {
             last_identity = identity;
         }
+        // With the Spotify app closed there is nothing to mirror, so make no requests.
+        let spotify_open = snapshot.spotify_running;
         let should_poll = match trigger {
             Trigger::State => track_changed || !matches!(snapshot.auth, Auth::SignedIn { .. }),
-            Trigger::Visible | Trigger::Tick => is_visible,
+            Trigger::Visible | Trigger::Tick => is_visible && spotify_open,
             Trigger::Command => {
                 tokio::time::sleep(COMMAND_SETTLE).await;
-                is_visible
+                is_visible && spotify_open
             }
         };
         if !should_poll {

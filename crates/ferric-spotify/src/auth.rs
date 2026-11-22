@@ -26,7 +26,9 @@ const REDIRECT_URI: &str = "http://127.0.0.1:8898/callback";
 const CALLBACK_ADDR: &str = "127.0.0.1:8898";
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 const CALLBACK_SUCCESS: &str = "You're signed in to Ferric. You can close this tab.";
-const SCOPES: [&str; 5] = [
+const SCOPES: [&str; 6] = [
+    // Needed for the profile's `product` (Premium vs free).
+    "user-read-private",
     "user-read-playback-state",
     "user-read-currently-playing",
     "user-modify-playback-state",
@@ -277,7 +279,7 @@ impl Authenticator {
             .display_name
             .unwrap_or_else(|| profile.id.to_string());
         #[allow(deprecated)]
-        let premium = profile.product == Some(SubscriptionLevel::Premium);
+        let premium = is_premium(profile.product);
         *self.client.write().expect("auth client lock poisoned") = Some(client);
         self.set_auth(Auth::SignedIn {
             display_name,
@@ -367,7 +369,7 @@ impl Authenticator {
             .display_name
             .unwrap_or_else(|| profile.id.to_string());
         #[allow(deprecated)]
-        let premium = profile.product == Some(SubscriptionLevel::Premium);
+        let premium = is_premium(profile.product);
         *self.client.write().expect("auth client lock poisoned") = Some(client);
         self.set_auth(Auth::SignedIn {
             display_name,
@@ -586,6 +588,14 @@ async fn parse_spotify_error(error: ClientError) -> ParsedSpotifyError {
     }
 }
 
+/// Spotify only reports the plan with the `user-read-private` scope; a sign-in from before
+/// Ferric asked for it has no `product`. Unknown counts as Premium: a free account gets a
+/// clear "Premium is required" error on its first control anyway, so don't nag on a guess.
+#[allow(deprecated)]
+fn is_premium(product: Option<SubscriptionLevel>) -> bool {
+    product.is_none_or(|level| level == SubscriptionLevel::Premium)
+}
+
 fn now_unix_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -604,6 +614,14 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    #[allow(deprecated)]
+    fn premium_unknown_counts_as_premium() {
+        assert!(is_premium(Some(SubscriptionLevel::Premium)));
+        assert!(!is_premium(Some(SubscriptionLevel::Free)));
+        assert!(is_premium(None));
+    }
 
     const CLIENT_ID: &str = "0123456789abcdef0123456789abcdef";
 
