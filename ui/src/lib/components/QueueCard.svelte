@@ -1,9 +1,19 @@
 <script lang="ts">
+  import type { Track } from "../bindings/Track";
+  import HandwrittenQueue from "./queue/HandwrittenQueue.svelte";
   import { cardTextureUrl } from "./textures";
+
+  interface Props {
+    queue: Track[] | null;
+  }
+
+  let { queue }: Props = $props();
 </script>
 
 <div class="queue-card" style="background-image: url({cardTextureUrl})">
-  <section id="queue-slot" aria-label="Up next"></section>
+  <section id="queue-slot" aria-label="Up next">
+    <HandwrittenQueue {queue} />
+  </section>
 </div>
 
 <style>
