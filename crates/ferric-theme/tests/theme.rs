@@ -1,6 +1,8 @@
 use std::{
-    fs,
+    env, fs,
     io::Cursor,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -20,6 +22,31 @@ const WHITE: Rgb = Rgb {
     b: 255,
 };
 const BLACK: Rgb = Rgb { r: 0, g: 0, b: 0 };
+static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
+struct TestDir(PathBuf);
+
+impl TestDir {
+    fn new() -> Self {
+        let id = NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed);
+        let path = env::temp_dir().join(format!("ferric-theme-{}-{id}", std::process::id()));
+        if path.exists() {
+            fs::remove_dir_all(&path).unwrap();
+        }
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
 
 fn encode(image: RgbImage, format: ImageFormat) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -156,7 +183,7 @@ fn contrast(left: Rgb, right: Rgb) -> f32 {
 
 #[test]
 fn all_covers_meet_wcag_contrast_against_plinth() {
-    let cache = tempfile::tempdir().unwrap();
+    let cache = TestDir::new();
     for kind in ["ember", "tide", "moss", "greyscale", "near_black"] {
         let bytes = fixture(kind, 240, ImageFormat::Png);
         let theme = extract(&bytes, kind, cache.path()).unwrap();
@@ -174,7 +201,7 @@ fn all_covers_meet_wcag_contrast_against_plinth() {
 
 #[test]
 fn greyscale_and_near_black_fall_back_to_neutral() {
-    let cache = tempfile::tempdir().unwrap();
+    let cache = TestDir::new();
     for kind in ["greyscale", "near_black"] {
         let bytes = fixture(kind, 180, ImageFormat::Png);
         let accent = extract(&bytes, kind, cache.path()).unwrap().accent;
@@ -191,7 +218,7 @@ fn greyscale_and_near_black_fall_back_to_neutral() {
 
 #[test]
 fn sleeve_and_record_outputs_have_expected_dimensions_and_alpha() {
-    let cache = tempfile::tempdir().unwrap();
+    let cache = TestDir::new();
     let bytes = fixture("ember", 240, ImageFormat::Png);
     let theme = extract(&bytes, "ember", cache.path()).unwrap();
 
@@ -213,8 +240,8 @@ fn sleeve_and_record_outputs_have_expected_dimensions_and_alpha() {
 
 #[test]
 fn same_album_key_produces_byte_identical_outputs() {
-    let dir_a = tempfile::tempdir().unwrap();
-    let dir_b = tempfile::tempdir().unwrap();
+    let dir_a = TestDir::new();
+    let dir_b = TestDir::new();
     let bytes = fixture("tide", 240, ImageFormat::Png);
 
     let theme_a = extract(&bytes, "album-tide", dir_a.path()).unwrap();
@@ -239,7 +266,7 @@ fn same_album_key_produces_byte_identical_outputs() {
 
 #[test]
 fn cache_hit_does_not_decode_or_rewrite_files() {
-    let cache = tempfile::tempdir().unwrap();
+    let cache = TestDir::new();
     let bytes = fixture("moss", 240, ImageFormat::Png);
     let first = extract(&bytes, "same-album", cache.path()).unwrap();
     let Some(Art::File { path: sleeve_path }) = &first.sleeve else {
@@ -268,7 +295,7 @@ fn cache_hit_does_not_decode_or_rewrite_files() {
 #[ignore = "release-mode performance check: cargo test -p ferric-theme --release -- --ignored --nocapture"]
 fn release_timing_for_640_jpeg() {
     let bytes = fixture("ember", 640, ImageFormat::Jpeg);
-    let cache = tempfile::tempdir().unwrap();
+    let cache = TestDir::new();
     let start = Instant::now();
     extract(&bytes, "timing", cache.path()).unwrap();
     let elapsed = start.elapsed();
