@@ -25,6 +25,30 @@
   let volumeTimer: ReturnType<typeof setTimeout> | null = null;
   let lastQueueVisible: boolean | null = null;
 
+  // Hovering wakes a faded window; it stays awake for another idle period after the
+  // pointer leaves, so the fade timer effectively restarts on every visit.
+  const IDLE_REARM_MS = 30_000;
+  let pointerInside = $state(false);
+  let awake = $state(false);
+  let awakeTimer: ReturnType<typeof setTimeout> | null = null;
+  const faded = $derived(playerStore.idleOpacity < 1 && !pointerInside && !awake);
+
+  function onShellEnter(): void {
+    pointerInside = true;
+    if (awakeTimer !== null) clearTimeout(awakeTimer);
+    awakeTimer = null;
+  }
+
+  function onShellLeave(): void {
+    pointerInside = false;
+    awake = true;
+    if (awakeTimer !== null) clearTimeout(awakeTimer);
+    awakeTimer = setTimeout(() => {
+      awake = false;
+      awakeTimer = null;
+    }, IDLE_REARM_MS);
+  }
+
   function rgbCss(rgb: Rgb): string {
     return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
   }
@@ -140,10 +164,11 @@
 
 <svelte:head><title>Ferric</title></svelte:head>
 <svelte:window onkeydown={onGlobalKeyDown} onwheel={onWheel} />
+<svelte:body onpointerenter={onShellEnter} onpointerleave={onShellLeave} />
 
 <div
   class="app-shell"
-  class:idle={playerStore.idleOpacity < 1}
+  class:idle={faded}
   style="--accent: {accentCss}; --on-accent: {onAccentCss}; --idle-opacity: {playerStore.idleOpacity}; transition: {playerStore.reducedMotion
     ? 'none'
     : 'color 300ms ease, opacity 600ms ease'};"
@@ -192,11 +217,6 @@
 <style>
   .app-shell.idle {
     opacity: var(--idle-opacity);
-  }
-
-  /* Faded when idle, but fully visible again while the pointer is over it. */
-  .app-shell.idle:hover {
-    opacity: 1;
   }
 
   .app-shell {
