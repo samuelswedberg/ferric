@@ -91,6 +91,36 @@ function makeInitialState(): PlayerState {
   };
 
   switch (mockMode) {
+    case "onboardingWhy":
+      return { ...base, mode: "card", queue: null, auth: { status: "noClientId" } };
+    case "onboardingCreate":
+      return { ...base, mode: "strip", queue: null, auth: { status: "noClientId" } };
+    case "onboardingClientId":
+      return { ...base, queue: null, auth: { status: "noClientId" } };
+    case "onboardingSignIn":
+      return { ...base, queue: null, auth: { status: "signedOut" } };
+    case "onboardingSigningIn":
+      return { ...base, queue: null, auth: { status: "signingIn" } };
+    case "onboardingError":
+      return {
+        ...base,
+        queue: null,
+        auth: { status: "error", message: "Spotify rejected that client ID. Check it and try again." },
+      };
+    case "onboardingPortInUse":
+      return {
+        ...base,
+        queue: null,
+        auth: {
+          status: "error",
+          message: "port 8898 is already in use; close the other application and try again",
+        },
+      };
+    case "free":
+      return {
+        ...base,
+        auth: { status: "signedIn", displayName: "Ferric Listener", premium: false },
+      };
     case "card":
       return { ...base, mode: "card" };
     case "strip":
@@ -256,14 +286,35 @@ export const mockBackend = {
     publish();
   },
 
-  setClientId(_clientId: string): void {
+  setClientId(clientId: string): void {
+    if (!/^[a-f\d]{32}$/i.test(clientId)) {
+      throw new Error("Spotify client ID must be exactly 32 hexadecimal characters");
+    }
     state = { ...state, auth: { status: "signedOut" } };
     publish();
   },
 
-  signIn(): void {
+  async signIn(): Promise<void> {
+    if (mockMode === "onboardingError") {
+      const message = "Spotify rejected that client ID. Check it and try again.";
+      state = { ...state, auth: { status: "error", message } };
+      publish();
+      throw new Error(message);
+    }
+    if (mockMode === "onboardingPortInUse") {
+      const message = "port 8898 is already in use; close the other application and try again";
+      state = { ...state, auth: { status: "error", message } };
+      publish();
+      throw new Error(message);
+    }
+    state = { ...state, auth: { status: "signingIn" } };
+    publish();
+    await new Promise((resolve) => window.setTimeout(resolve, 650));
     state = {
       ...state,
+      queue,
+      liked: true,
+      volumePct: 72,
       auth: { status: "signedIn", displayName: "Ferric Listener", premium: true },
     };
     publish();

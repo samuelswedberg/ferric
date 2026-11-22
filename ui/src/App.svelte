@@ -6,6 +6,7 @@
   import FullView from "./lib/components/FullView.svelte";
   import CardView from "./lib/components/modes/CardView.svelte";
   import StripView from "./lib/components/modes/StripView.svelte";
+  import OnboardingPanel from "./lib/components/onboarding/OnboardingPanel.svelte";
   import {
     nextMode,
     queueShouldBeVisible,
@@ -180,6 +181,7 @@
         {/if}
       </div>
     {/key}
+    <OnboardingPanel playerState={playerStore.playerState} />
   {/if}
 </div>
 

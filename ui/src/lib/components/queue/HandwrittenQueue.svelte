@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { Track } from "../../bindings/Track";
+  import { onboarding } from "../onboarding/controller.svelte";
   import { openSpotifyLink, trackLink } from "../../spotifyLinks";
   import { formatTime, playerStore } from "../../state.svelte";
 
@@ -62,7 +63,7 @@
     <div class="signed-out">
       <span>sign in to see what's next</span>
       <!-- T10 wires this button to the sign-in flow. -->
-      <button type="button">Sign in</button>
+      <button type="button" onclick={() => onboarding.show(4)}>Sign in</button>
     </div>
   {:else if visibleTracks.length === 0}
     <p class="empty">end of side</p>
