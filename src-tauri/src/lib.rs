@@ -19,12 +19,16 @@ pub fn run() {
         )
         .manage(ferric_core::store::Store::new())
         .setup(|app| {
+            app::setup(app)?;
             window::setup(app.handle())?;
             tray::build(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
+            commands::open_spotify,
+            commands::send_command,
+            commands::set_queue_visible,
             window::set_mode_command
         ])
         .run(tauri::generate_context!())
