@@ -1,11 +1,11 @@
 <script lang="ts">
   import { windowDrag } from "../../windowDrag";
-  import { onMount } from "svelte";
   import type { PlayerState } from "../../bindings/PlayerState";
   import { albumLink, trackLink } from "../../spotifyLinks";
   import { formatTime, playerStore, resolveArtSrc } from "../../state.svelte";
   import KeyBank from "../KeyBank.svelte";
   import RecordDeck from "../RecordDeck.svelte";
+  import ScrollText from "../ScrollText.svelte";
   import WindowChrome from "../WindowChrome.svelte";
   import { grainTextureUrl, plinthTextureUrl } from "../textures";
 
@@ -26,10 +26,6 @@
     volumeDisplay,
     onModeSwitch,
   }: Props = $props();
-  let titleEl: HTMLSpanElement | undefined = $state();
-  let artistEl: HTMLSpanElement | undefined = $state();
-  let titleOverflow = $state(false);
-  let artistOverflow = $state(false);
 
   const spotifyRunning = $derived(playerState.spotifyRunning);
   const track = $derived(playerState.track);
@@ -62,24 +58,6 @@
   const songUrl = $derived(spotifyRunning && track ? trackLink(track) : null);
   const albumUrl = $derived(spotifyRunning && track ? albumLink(track) : null);
 
-  function measureOverflow(): void {
-    titleOverflow = !!titleEl && titleEl.scrollWidth > titleEl.clientWidth;
-    artistOverflow = !!artistEl && artistEl.scrollWidth > artistEl.clientWidth;
-  }
-
-  $effect(() => {
-    titleText;
-    artistText;
-    queueMicrotask(measureOverflow);
-  });
-
-  onMount(() => {
-    const observer = new ResizeObserver(measureOverflow);
-    if (titleEl) observer.observe(titleEl);
-    if (artistEl) observer.observe(artistEl);
-    measureOverflow();
-    return () => observer.disconnect();
-  });
 
 </script>
 
@@ -106,13 +84,9 @@
     {reducedMotion}
   />
 
-  <span class="title clip" class:marquee={titleOverflow} bind:this={titleEl} title={titleText}>
-    <span>{titleText}</span>
-  </span>
+  <span class="title clip"><ScrollText text={titleText} {reducedMotion} /></span>
   {#if artistText}
-    <span class="artist clip" class:marquee={artistOverflow} bind:this={artistEl} title={artistText}>
-      <span>{artistText}</span>
-    </span>
+    <span class="artist clip"><ScrollText text={artistText} {reducedMotion} /></span>
   {/if}
   {#if timeText}<span class="time">{timeText}</span>{/if}
 
@@ -176,13 +150,6 @@
     width: 116px;
     color: var(--ink-muted);
     font: 400 11px/1.2 "Bahnschrift", "Segoe UI", sans-serif;
-  }
-
-  .marquee > span {
-    display: inline-block;
-    min-width: 100%;
-    padding-right: 18px;
-    animation: marquee 6s linear 1s infinite alternate;
   }
 
   .time {
@@ -264,12 +231,4 @@
     transition: none;
   }
 
-  .no-motion .marquee > span {
-    animation: none;
-  }
-
-  @keyframes marquee {
-    from { transform: translateX(0); }
-    to { transform: translateX(calc(-100% + 94px)); }
-  }
 </style>

@@ -11,7 +11,6 @@
   import UpdateBar from "./lib/components/update/UpdateBar.svelte";
   import {
     nextMode,
-    queueShouldBeVisible,
     stepVolume,
     UNKNOWN_VOLUME_RESET_MS,
     VOLUME_RESET_MS,
@@ -32,6 +31,13 @@
   let awake = $state(false);
   let awakeTimer: ReturnType<typeof setTimeout> | null = null;
   const faded = $derived(playerStore.idleOpacity < 1 && !pointerInside && !awake);
+  /** Card and Strip are small; at the Full-mode fade they practically vanish. */
+  const COMPACT_IDLE_FLOOR = 0.65;
+  const idleOpacity = $derived(
+    playerStore.playerState?.mode === "full"
+      ? playerStore.idleOpacity
+      : Math.max(playerStore.idleOpacity, COMPACT_IDLE_FLOOR),
+  );
 
   function onShellEnter(): void {
     pointerInside = true;
@@ -146,7 +152,9 @@
   $effect(() => {
     const state = playerStore.playerState;
     if (!state) return;
-    const visible = queueShouldBeVisible(state.mode, playerStore.isHidden);
+    // Spotify polling runs whenever the window is shown (any mode); the backend limits
+    // the queue fetch to Full mode itself.
+    const visible = !playerStore.isHidden;
     if (visible === lastQueueVisible) return;
     lastQueueVisible = visible;
     void setQueueVisible(visible).catch(reportError);
@@ -169,7 +177,7 @@
 <div
   class="app-shell"
   class:idle={faded}
-  style="--accent: {accentCss}; --on-accent: {onAccentCss}; --idle-opacity: {playerStore.idleOpacity}; transition: {playerStore.reducedMotion
+  style="--accent: {accentCss}; --on-accent: {onAccentCss}; --idle-opacity: {idleOpacity}; transition: {playerStore.reducedMotion
     ? 'none'
     : 'color 300ms ease, opacity 600ms ease'};"
 >
@@ -223,14 +231,17 @@
     position: relative;
     width: 100vw;
     height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: grid;
+    place-items: start;
     background: transparent;
+    overflow: hidden;
   }
 
+  /* During a mode switch the old and new views cross-fade in the same cell, anchored
+     top-left like the window resize, instead of sitting side by side. */
   .mode-frame {
+    grid-area: 1 / 1;
     position: relative;
-    transform-origin: center;
+    transform-origin: top left;
   }
 </style>

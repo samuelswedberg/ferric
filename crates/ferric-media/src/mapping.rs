@@ -78,8 +78,54 @@ pub(crate) fn map_position(ticks_100ns: i64, sampled_at: SystemTime) -> Position
     }
 }
 
+/// The position as of `now`, assuming it advanced in real time while `previous` was
+/// Playing, and stamped `now` so later extrapolation starts from this moment.
+pub(crate) fn rebase_position(
+    current: Position,
+    previous: Playback,
+    duration_ms: Option<u64>,
+    now: SystemTime,
+) -> Position {
+    let now_ms: u64 = now
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX);
+    let mut ms = current.ms;
+    if previous == Playback::Playing {
+        ms = ms.saturating_add(now_ms.saturating_sub(current.sampled_at_unix_ms));
+    }
+    if let Some(duration) = duration_ms {
+        ms = ms.min(duration);
+    }
+    Position {
+        ms,
+        sampled_at_unix_ms: now_ms,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn rebase_advances_while_playing_and_freezes_while_paused() {
+        let now = UNIX_EPOCH + Duration::from_millis(13_000);
+        let current = Position {
+            ms: 5_000,
+            sampled_at_unix_ms: 10_000,
+        };
+        let paused_at = rebase_position(current, Playback::Playing, Some(60_000), now);
+        assert_eq!(paused_at.ms, 8_000);
+        assert_eq!(paused_at.sampled_at_unix_ms, 13_000);
+
+        let resumed = rebase_position(current, Playback::Paused, None, now);
+        assert_eq!(resumed.ms, 5_000);
+        assert_eq!(resumed.sampled_at_unix_ms, 13_000);
+
+        let clamped = rebase_position(current, Playback::Playing, Some(6_000), now);
+        assert_eq!(clamped.ms, 6_000);
+    }
     use super::*;
     use std::time::Duration;
 

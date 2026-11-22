@@ -15,6 +15,8 @@ import {
 } from "./ipc";
 
 const TOAST_DURATION_MS = 3000;
+/** How long a just-made seek overrides the reported position while Spotify catches up. */
+const SEEK_HOLD_MS = 3000;
 
 export function resolveArtSrc(art: Art | null | undefined): string | null {
   if (!art) return null;
@@ -40,17 +42,25 @@ class PlayerStore {
   idleOpacity = $state<number>(1);
 
   private rafId: number | null = null;
+  /** A seek the user just made, shown until the backend reports a newer position. */
+  private pendingSeek: { ms: number; at: number } | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   private computePositionMs(state: PlayerState | null): number {
     if (!state || !state.spotifyRunning || state.playback === "stopped" || !state.position) {
       return 0;
     }
-    const base = state.position.ms;
+    let base = state.position.ms;
+    let sampledAt = state.position.sampledAtUnixMs;
+    const seek = this.pendingSeek;
+    if (seek && sampledAt < seek.at && Date.now() - seek.at < SEEK_HOLD_MS) {
+      base = seek.ms;
+      sampledAt = seek.at;
+    } else if (seek) {
+      this.pendingSeek = null;
+    }
     const extrapolated =
-      state.playback === "playing"
-        ? base + Math.max(0, Date.now() - state.position.sampledAtUnixMs)
-        : base;
+      state.playback === "playing" ? base + Math.max(0, Date.now() - sampledAt) : base;
     const duration = state.track?.durationMs;
     return duration != null ? Math.min(extrapolated, duration) : extrapolated;
   }
@@ -106,9 +116,17 @@ class PlayerStore {
   }
 
   async runCommand(cmd: Command): Promise<void> {
+    if (cmd.type === "seek") {
+      this.pendingSeek = { ms: cmd.positionMs, at: Date.now() };
+      this.syncPositionLoop();
+    }
     try {
       await sendCommand(cmd);
     } catch (cause: unknown) {
+      if (cmd.type === "seek") {
+        this.pendingSeek = null;
+        this.syncPositionLoop();
+      }
       const msg = cause instanceof Error ? cause.message : String(cause);
       this.showToast(msg);
     }

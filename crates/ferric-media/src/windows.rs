@@ -273,10 +273,23 @@ async fn refresh(store: &Store, session: &WinSession, cache_dir: &Path) -> Resul
     store.update(|state| {
         state.spotify_running = true;
         state.track = Some(map_track(metadata, state.track.as_ref()));
-        state.playback = map_playback(playback_status);
+        let playback = map_playback(playback_status);
         if !matches!(state.auth, Auth::SignedIn { .. }) {
             state.position = Some(position);
+        } else if playback != state.playback {
+            // Signed in, the position comes from the Spotify poll, which can be seconds
+            // old. Re-anchor it at the pause/play edge so the display neither jumps back
+            // on pause nor counts the paused time on resume.
+            state.position = state.position.map(|current| {
+                crate::mapping::rebase_position(
+                    current,
+                    state.playback,
+                    state.track.as_ref().and_then(|track| track.duration_ms),
+                    SystemTime::now(),
+                )
+            });
         }
+        state.playback = playback;
     });
     Ok(())
 }

@@ -5,7 +5,7 @@ use std::{
 };
 
 use ferric_core::{
-    model::{Art, Auth, Position, Track},
+    model::{Art, Auth, Mode, Position, Track},
     store::Store,
 };
 use tokio::sync::watch;
@@ -19,11 +19,17 @@ use api::{Error, ErrorKind, RspotifyApi, SpotifyApi};
 
 /// Playback (volume, position, liked) is polled this often while the window is visible.
 /// Volume only comes from the Web API, so this bounds how stale the knob can be.
-const POLL_INTERVAL: Duration = Duration::from_secs(5);
-/// The queue changes less often; it is refreshed this often, and whenever the track changes.
-const QUEUE_INTERVAL: Duration = Duration::from_secs(15);
-const ENDPOINT_DEBOUNCE: Duration = Duration::from_secs(2);
-const REQUEST_BUDGET: usize = 24;
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// The queue (Full mode only) is refreshed this often, and as soon as the track changes.
+const QUEUE_INTERVAL: Duration = Duration::from_secs(10);
+/// After a track change, Spotify's Web API can lag Windows' media session by a moment;
+/// re-poll quickly until it reports the new track.
+const MATCH_RETRY_DELAY: Duration = Duration::from_millis(400);
+const MATCH_RETRIES: u32 = 8;
+/// Wait after a command before polling, so Spotify has applied it.
+const COMMAND_SETTLE: Duration = Duration::from_millis(300);
+const ENDPOINT_DEBOUNCE: Duration = Duration::from_millis(500);
+const REQUEST_BUDGET: usize = 60;
 
 static COMMAND_REVISION: OnceLock<watch::Sender<u64>> = OnceLock::new();
 
@@ -79,7 +85,7 @@ pub async fn run(store: Store, auth: Arc<Authenticator>, mut visible: watch::Rec
             Trigger::State => track_changed || !matches!(snapshot.auth, Auth::SignedIn { .. }),
             Trigger::Visible | Trigger::Tick => is_visible,
             Trigger::Command => {
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::time::sleep(COMMAND_SETTLE).await;
                 is_visible
             }
         };
@@ -90,8 +96,23 @@ pub async fn run(store: Store, auth: Arc<Authenticator>, mut visible: watch::Rec
         let client = auth.client().map(RspotifyApi::new);
         let signed_in = matches!(snapshot.auth, Auth::SignedIn { .. });
         let api = client.as_ref().map(|api| api as &dyn SpotifyApi);
-        if let Some(delay) = poll_cycle(&store, api, signed_in, is_visible, &mut poll_state).await {
-            tokio::time::sleep(delay).await;
+        let mut retries = 0;
+        loop {
+            if let Some(delay) =
+                poll_cycle(&store, api, signed_in, is_visible, &mut poll_state).await
+            {
+                tokio::time::sleep(delay).await;
+                break;
+            }
+            let awaiting_match = signed_in
+                && is_visible
+                && poll_state.session_active
+                && poll_state.last_match_missed;
+            if !awaiting_match || retries >= MATCH_RETRIES || !track_changed {
+                break;
+            }
+            retries += 1;
+            tokio::time::sleep(MATCH_RETRY_DELAY).await;
         }
     }
 }
@@ -105,6 +126,8 @@ struct PollState {
     queue_track_id: Option<String>,
     /// Whether the last playback poll found an active Spotify session.
     session_active: bool,
+    /// Whether the last playback poll's track didn't match the local track.
+    last_match_missed: bool,
     requests: VecDeque<Instant>,
     backoff: Backoff,
 }
@@ -180,6 +203,7 @@ async fn poll_cycle(
                 state.backoff.success();
                 state.session_active = playback.is_some();
                 matched_track_id = apply_playback(store, playback);
+                state.last_match_missed = matched_track_id.is_none() && store.get().track.is_some();
             }
             Err(error) => {
                 if let Some(delay) = rate_limit_delay(state, &error) {
@@ -217,7 +241,9 @@ async fn poll_cycle(
     let queue_track_changed =
         matched_track_id.is_some() && matched_track_id != state.queue_track_id;
     // Without an active session Spotify returns an empty queue; keep the last one instead.
+    let queue_shown = store.get().mode == Mode::Full;
     if state.session_active
+        && queue_shown
         && PollState::ready(state.last_queue, now)
         && (queue_stale || queue_track_changed)
     {
