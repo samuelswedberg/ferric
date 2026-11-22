@@ -8,6 +8,7 @@
   import CardView from "./lib/components/modes/CardView.svelte";
   import StripView from "./lib/components/modes/StripView.svelte";
   import OnboardingPanel from "./lib/components/onboarding/OnboardingPanel.svelte";
+  import UpdateBar from "./lib/components/update/UpdateBar.svelte";
   import {
     nextMode,
     queueShouldBeVisible,
@@ -184,6 +185,7 @@
     <ErrorToast message={playerStore.toastMessage} />
     <OnboardingPanel playerState={playerStore.playerState} />
   {/if}
+  <UpdateBar />
 </div>
 
 <style>

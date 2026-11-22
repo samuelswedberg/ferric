@@ -7,10 +7,16 @@ mod hotkeys;
 mod router;
 mod theming;
 mod tray;
+mod updater;
 mod window;
 
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    if updater::configured() {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+
+    builder
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -26,6 +32,7 @@ pub fn run() {
         .manage(ferric_core::store::Store::new())
         .setup(|app| {
             app::setup(app)?;
+            updater::setup(app.handle());
             window::setup(app.handle())?;
             tray::build(app.handle())?;
             config::setup(app)?;
@@ -40,6 +47,7 @@ pub fn run() {
             commands::send_command,
             commands::set_queue_visible,
             config::get_config,
+            updater::install_update,
             window::set_mode_command
         ])
         .run(tauri::generate_context!())

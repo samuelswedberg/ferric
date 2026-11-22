@@ -1,0 +1,6 @@
+# Replace VERSION before validation or submission.
+PackageIdentifier: Samuelswedberg.Ferric
+PackageVersion: VERSION
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.9.0

@@ -1,0 +1,15 @@
+PackageIdentifier: Samuelswedberg.Ferric
+PackageVersion: VERSION
+PackageLocale: en-US
+Publisher: Samuel Swedberg
+PackageName: Ferric
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/samuelswedberg/ferric/blob/main/LICENSE-MIT
+ShortDescription: A tiny, album-art-themed miniplayer for Spotify on Windows.
+PackageUrl: https://github.com/samuelswedberg/ferric
+Tags:
+  - miniplayer
+  - spotify
+  - music
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
