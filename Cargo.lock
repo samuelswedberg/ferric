@@ -1116,7 +1116,11 @@ name = "ferric-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "ferric-core",
+ "ferric-media",
+ "ferric-theme",
+ "reqwest 0.12.28",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
@@ -1124,6 +1128,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "windows",
 ]
 
 [[package]]
