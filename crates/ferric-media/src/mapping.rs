@@ -27,6 +27,9 @@ pub(crate) fn map_track(metadata: MediaMetadata, previous: Option<&Track>) -> Tr
         title: metadata.title,
         artists,
         album: (!metadata.album.is_empty()).then_some(metadata.album),
+        album_id: same_track
+            .then(|| previous.and_then(|track| track.album_id.clone()))
+            .flatten(),
         duration_ms: same_track
             .then(|| previous.and_then(|track| track.duration_ms))
             .flatten(),
@@ -105,11 +108,13 @@ mod tests {
             title: "Song".into(),
             artists: vec!["One".into()],
             album: None,
+            album_id: Some("album-id".into()),
             duration_ms: Some(42),
             art: None,
         };
         let track = map_track(metadata("Song", "One, Guest"), Some(&previous));
         assert_eq!(track.spotify_id.as_deref(), Some("spotify-id"));
+        assert_eq!(track.album_id.as_deref(), Some("album-id"));
         assert_eq!(track.duration_ms, Some(42));
     }
 
@@ -120,11 +125,13 @@ mod tests {
             title: "Old".into(),
             artists: vec!["One".into()],
             album: None,
+            album_id: Some("album-id".into()),
             duration_ms: Some(42),
             art: None,
         };
         let track = map_track(metadata("New", "One"), Some(&previous));
         assert_eq!(track.spotify_id, None);
+        assert_eq!(track.album_id, None);
         assert_eq!(track.duration_ms, None);
     }
 

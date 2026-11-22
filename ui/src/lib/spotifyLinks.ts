@@ -27,8 +27,12 @@ export function trackLink(track: Track): SpotifyLink {
   return searchLink(`${track.title} ${track.artists.join(" ")}`);
 }
 
-/** Track has no album id yet, so albums open as a search (album name + first artist). */
+/** Opens the album directly when the Web API gave its id, else searches album name + first artist. */
 export function albumLink(track: Track): SpotifyLink {
+  if (track.albumId) {
+    const id = encodeURIComponent(track.albumId);
+    return { app: `spotify:album:${id}`, web: `https://open.spotify.com/album/${id}` };
+  }
   return searchLink(`${track.album ?? track.title} ${track.artists[0] ?? ""}`, "/albums");
 }
 

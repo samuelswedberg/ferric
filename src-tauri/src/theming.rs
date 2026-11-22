@@ -296,6 +296,7 @@ mod tests {
                 title: path.to_owned(),
                 artists: vec!["Artist".to_owned()],
                 album: None,
+                album_id: None,
                 duration_ms: None,
                 art: Some(Art::File {
                     path: path.to_owned(),
