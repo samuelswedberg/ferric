@@ -36,7 +36,7 @@
   const ratio = $derived(
     dragging ? dragRatio : displayRatio === null ? baseRatio : Math.min(1, Math.max(0, displayRatio)),
   );
-  const capLeftPx = $derived(ratio * (variant === "card" ? 174 : 306));
+  const capLeftPx = $derived(Math.round(ratio * (variant === "card" ? 174 : 306)));
   const playedWidthPx = $derived(
     Math.max(0, Math.round(ratio * (variant === "card" ? 182 : 318))),
   );
@@ -238,7 +238,6 @@
   .slider.card .cap {
     width: 10px;
     height: 16px;
-    transition: transform 200ms ease;
   }
 
   .slider.card .ridge {

@@ -18,6 +18,7 @@ struct TrayMenuState {
     card: CheckMenuItem<tauri::Wry>,
     strip: CheckMenuItem<tauri::Wry>,
     start_with_windows: CheckMenuItem<tauri::Wry>,
+    fade_when_idle: CheckMenuItem<tauri::Wry>,
 }
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
@@ -49,6 +50,17 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
+    let fade_checked = app
+        .try_state::<crate::config::ConfigManager>()
+        .is_none_or(|config| config.current().fade_when_idle);
+    let fade_when_idle = CheckMenuItem::with_id(
+        app,
+        "fade-when-idle",
+        "Fade when idle",
+        true,
+        fade_checked,
+        None::<&str>,
+    )?;
     let config_separator = PredefinedMenuItem::separator(app)?;
     let sign_out = MenuItem::with_id(app, "sign-out", "Sign out", true, None::<&str>)?;
     let account_separator = PredefinedMenuItem::separator(app)?;
@@ -65,6 +77,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &separator,
             &open_config,
             &start_with_windows,
+            &fade_when_idle,
             &config_separator,
             &sign_out,
             &account_separator,
@@ -79,6 +92,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         card,
         strip,
         start_with_windows,
+        fade_when_idle,
     });
 
     let tray = app
@@ -123,6 +137,12 @@ pub(crate) fn sync_autostart(app: &AppHandle, enabled: bool) {
     }
 }
 
+pub(crate) fn sync_fade_when_idle(app: &AppHandle, enabled: bool) {
+    if let Some(menu) = app.try_state::<TrayMenuState>() {
+        let _ = menu.fade_when_idle.set_checked(enabled);
+    }
+}
+
 fn mode_item(
     app: &AppHandle,
     id: &'static str,
@@ -141,6 +161,7 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         "mode-strip" => change_mode(app, Mode::Strip),
         "open-config" => open_config(app),
         "start-with-windows" => toggle_start_with_windows(app),
+        "fade-when-idle" => toggle_fade_when_idle(app),
         "sign-out" => sign_out(app),
         "quit" => app.exit(0),
         _ => {}
@@ -169,6 +190,20 @@ fn toggle_start_with_windows(app: &AppHandle) {
         tracing::warn!(%error, "failed to toggle start-with-Windows from tray");
         crate::config::report_error(app, format!("Could not update Start with Windows: {error}"));
         sync_autostart(app, current);
+    }
+}
+
+fn toggle_fade_when_idle(app: &AppHandle) {
+    let Some(current) = app
+        .try_state::<crate::config::ConfigManager>()
+        .map(|config| config.current().fade_when_idle)
+    else {
+        return;
+    };
+    if let Err(error) = crate::config::set_fade_when_idle(app, !current) {
+        tracing::warn!(%error, "failed to toggle fade-when-idle from tray");
+        crate::config::report_error(app, format!("Could not update Fade when idle: {error}"));
+        sync_fade_when_idle(app, current);
     }
 }
 

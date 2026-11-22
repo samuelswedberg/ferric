@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { windowDrag } from "../windowDrag";
   import type { PlayerState } from "../bindings/PlayerState";
   import { albumLink, trackLink } from "../spotifyLinks";
   import { formatTime, playerStore, resolveArtSrc } from "../state.svelte";
@@ -6,6 +7,7 @@
   import ProgressSlider from "./ProgressSlider.svelte";
   import QueueCard from "./QueueCard.svelte";
   import RecordDeck from "./RecordDeck.svelte";
+  import ScrollText from "./ScrollText.svelte";
   import { grainTextureUrl, plinthTextureUrl } from "./textures";
   import VolumeKnob from "./VolumeKnob.svelte";
   import WindowChrome from "./WindowChrome.svelte";
@@ -51,16 +53,12 @@
   const songUrl = $derived(spotifyRunning && track ? trackLink(track) : null);
   const albumUrl = $derived(spotifyRunning && track ? albumLink(track) : null);
 
-  function onDoubleClick(event: MouseEvent): void {
-    if (event.target === event.currentTarget) onModeSwitch();
-  }
 </script>
 
 <main
   class="plinth"
-  data-tauri-drag-region
+  use:windowDrag={onModeSwitch}
   style="background-image: url({plinthTextureUrl})"
-  ondblclick={onDoubleClick}
 >
   <WindowChrome {onModeSwitch} />
 
@@ -79,10 +77,10 @@
     {reducedMotion}
   />
 
-  <h1 class="title" title={titleText}>{titleText}</h1>
+  <h1 class="title"><ScrollText text={titleText} {reducedMotion} /></h1>
 
   {#if artistText}
-    <p class="artist" title={artistText}>{artistText}</p>
+    <p class="artist"><ScrollText text={artistText} {reducedMotion} /></p>
   {/if}
 
   {#if timeText}
@@ -144,15 +142,13 @@
     left: 20px;
     top: 268px;
     margin: 0;
-    max-width: 320px;
+    width: 320px;
     font-family: "Bahnschrift", "Segoe UI Variable", "Segoe UI", sans-serif;
     font-weight: 600;
     font-size: 24px;
     line-height: 1.2;
     color: var(--ink);
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
     pointer-events: none;
   }
 
@@ -161,15 +157,13 @@
     left: 20px;
     top: 300px;
     margin: 0;
-    max-width: 210px;
+    width: 210px;
     font-family: "Bahnschrift", "Segoe UI Variable", "Segoe UI", sans-serif;
     font-weight: 400;
     font-size: 14px;
     line-height: 1.2;
     color: var(--ink-muted);
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
     pointer-events: none;
   }
 

@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { windowDrag } from "../../windowDrag";
   import type { PlayerState } from "../../bindings/PlayerState";
   import { albumLink, trackLink } from "../../spotifyLinks";
   import { formatTime, playerStore, resolveArtSrc } from "../../state.svelte";
   import KeyBank from "../KeyBank.svelte";
   import ProgressSlider from "../ProgressSlider.svelte";
   import RecordDeck from "../RecordDeck.svelte";
+  import ScrollText from "../ScrollText.svelte";
   import WindowChrome from "../WindowChrome.svelte";
   import { grainTextureUrl, plinthTextureUrl } from "../textures";
 
@@ -49,16 +51,12 @@
   const songUrl = $derived(spotifyRunning && track ? trackLink(track) : null);
   const albumUrl = $derived(spotifyRunning && track ? albumLink(track) : null);
 
-  function onDoubleClick(event: MouseEvent): void {
-    if (event.target === event.currentTarget) onModeSwitch();
-  }
 </script>
 
 <main
   class="plinth card-plinth"
-  data-tauri-drag-region
+  use:windowDrag={onModeSwitch}
   style="background-image: url({plinthTextureUrl})"
-  ondblclick={onDoubleClick}
 >
   <WindowChrome variant="card" {onModeSwitch} />
   <RecordDeck
@@ -77,8 +75,8 @@
     {reducedMotion}
   />
 
-  <h1 class="title" title={titleText}>{titleText}</h1>
-  {#if artistText}<p class="artist" title={artistText}>{artistText}</p>{/if}
+  <h1 class="title"><ScrollText text={titleText} {reducedMotion} /></h1>
+  {#if artistText}<p class="artist"><ScrollText text={artistText} {reducedMotion} /></p>{/if}
   {#if timeText}<span class="time">{timeText}</span>{/if}
 
   <ProgressSlider
@@ -133,9 +131,7 @@
     margin: 0;
     color: var(--ink);
     font: 600 18px/1.15 "Bahnschrift", "Segoe UI", sans-serif;
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
     pointer-events: none;
   }
 
@@ -147,9 +143,7 @@
     margin: 0;
     color: var(--ink-muted);
     font: 400 12px/1.2 "Bahnschrift", "Segoe UI", sans-serif;
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
     pointer-events: none;
   }
 

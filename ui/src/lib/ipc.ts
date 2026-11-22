@@ -8,6 +8,7 @@ import { mockBackend } from "./mock";
 const STATE_EVENT = "ferric://state";
 const CONFIG_EVENT = "ferric://config";
 const ERROR_EVENT = "ferric://error";
+const IDLE_OPACITY_EVENT = "ferric://idle-opacity";
 const isTauri = typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
 
 export interface ConfigPayload {
@@ -78,4 +79,10 @@ export async function subscribeError(listener: (message: string) => void): Promi
 /** Used by browser tooling and tests to exercise the same state event shape as Tauri. */
 export async function emitStateForTesting(state: PlayerState): Promise<void> {
   if (isTauri) await emit(STATE_EVENT, state);
+}
+
+/** Opacity the UI fades to after 30 s of nothing playing (1 = fully visible). */
+export async function subscribeIdleOpacity(listener: (opacity: number) => void): Promise<UnlistenFn> {
+  if (!isTauri) return () => {};
+  return listen<number>(IDLE_OPACITY_EVENT, (event) => listener(event.payload));
 }

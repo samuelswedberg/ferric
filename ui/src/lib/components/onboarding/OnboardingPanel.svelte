@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { windowDrag } from "../../windowDrag";
   import { isTauri } from "@tauri-apps/api/core";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import type { PlayerState } from "../../bindings/PlayerState";
@@ -121,7 +122,7 @@
 </script>
 
 {#if onboarding.open}
-  <div class="onboarding-shade">
+  <div class="onboarding-shade" use:windowDrag>
     <div
       class="onboarding-panel"
       style="background-image: url({cardTextureUrl})"

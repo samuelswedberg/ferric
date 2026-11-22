@@ -83,13 +83,28 @@ impl Controller for SpotifyController {
             Command::Previous => self.player_call(api.as_ref(), || api.previous()).await?,
             Command::Seek { position_ms } => {
                 self.player_call(api.as_ref(), || api.seek(*position_ms))
-                    .await?
+                    .await?;
+                // Show the new spot now instead of waiting for the next poll.
+                let sampled_at_unix_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u64::MAX);
+                self.store.update(|state| {
+                    state.position = Some(ferric_core::model::Position {
+                        ms: *position_ms,
+                        sampled_at_unix_ms,
+                    });
+                });
             }
             Command::SetVolume { pct } => {
                 if *pct > 100 {
                     return Err(ControlError::Other("volume must be 0..=100".into()));
                 }
+                self.auth.note_volume_set();
                 self.player_call(api.as_ref(), || api.volume(*pct)).await?;
+                self.auth.note_volume_set();
                 self.store.update(|state| state.volume_pct = Some(*pct));
             }
             Command::SetLiked { liked } => {

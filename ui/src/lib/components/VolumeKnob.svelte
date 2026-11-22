@@ -12,9 +12,23 @@
   let dragStartY = 0;
   let dragStartPct = 0;
   let lastSentPct = -1;
+  /** The value the user just set, shown until Spotify's reported volume catches up. */
+  let localPct = $state<number | null>(null);
+  let localTimer: ReturnType<typeof setTimeout> | null = null;
+  const LOCAL_HOLD_MS = 2000;
 
   const enabled = $derived(spotifyRunning && volumePct !== null);
-  const currentPct = $derived(volumePct ?? 0);
+  const currentPct = $derived(localPct ?? volumePct ?? 0);
+
+  function setLocal(pct: number): void {
+    localPct = pct;
+    if (localTimer !== null) clearTimeout(localTimer);
+    localTimer = setTimeout(() => {
+      localTimer = null;
+      if (!dragging) localPct = null;
+    }, LOCAL_HOLD_MS);
+    onSetVolume(pct);
+  }
   const pointerAngleDeg = $derived(-135 + (currentPct / 100) * 270);
 
   function snapStep(pct: number): number {
@@ -37,13 +51,14 @@
     const nextPct = snapStep(dragStartPct + deltaY * 0.75);
     if (nextPct !== lastSentPct) {
       lastSentPct = nextPct;
-      onSetVolume(nextPct);
+      setLocal(nextPct);
     }
   }
 
   function onPointerUp(event: PointerEvent): void {
     if (!dragging) return;
     dragging = false;
+    if (localTimer === null) localPct = null;
     if (knobEl?.hasPointerCapture(event.pointerId)) {
       knobEl.releasePointerCapture(event.pointerId);
     }
@@ -55,7 +70,7 @@
     const delta = event.deltaY < 0 ? 5 : -5;
     const nextPct = snapStep(currentPct + delta);
     if (nextPct !== currentPct) {
-      onSetVolume(nextPct);
+      setLocal(nextPct);
     }
   }
 
@@ -64,11 +79,11 @@
     if (event.key === "ArrowUp" || event.key === "ArrowRight") {
       event.preventDefault();
       event.stopPropagation();
-      onSetVolume(snapStep(currentPct + 5));
+      setLocal(snapStep(currentPct + 5));
     } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
       event.preventDefault();
       event.stopPropagation();
-      onSetVolume(snapStep(currentPct - 5));
+      setLocal(snapStep(currentPct - 5));
     }
   }
 </script>

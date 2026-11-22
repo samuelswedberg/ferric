@@ -5,7 +5,7 @@ use std::{
 };
 
 use ferric_core::{
-    model::{Art, Auth, Position, Track},
+    model::{Art, Auth, Mode, Position, Track},
     store::Store,
 };
 use tokio::sync::watch;
@@ -17,9 +17,19 @@ pub(crate) mod api;
 
 use api::{Error, ErrorKind, RspotifyApi, SpotifyApi};
 
-const POLL_INTERVAL: Duration = Duration::from_secs(15);
-const ENDPOINT_DEBOUNCE: Duration = Duration::from_secs(2);
-const REQUEST_BUDGET: usize = 12;
+/// Playback (volume, position, liked) is polled this often while the window is visible.
+/// Volume only comes from the Web API, so this bounds how stale the knob can be.
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// The queue (Full mode only) is refreshed this often, and as soon as the track changes.
+const QUEUE_INTERVAL: Duration = Duration::from_secs(10);
+/// After a track change, Spotify's Web API can lag Windows' media session by a moment;
+/// re-poll quickly until it reports the new track.
+const MATCH_RETRY_DELAY: Duration = Duration::from_millis(400);
+const MATCH_RETRIES: u32 = 8;
+/// Wait after a command before polling, so Spotify has applied it.
+const COMMAND_SETTLE: Duration = Duration::from_millis(300);
+const ENDPOINT_DEBOUNCE: Duration = Duration::from_millis(500);
+const REQUEST_BUDGET: usize = 60;
 
 static COMMAND_REVISION: OnceLock<watch::Sender<u64>> = OnceLock::new();
 
@@ -71,12 +81,14 @@ pub async fn run(store: Store, auth: Arc<Authenticator>, mut visible: watch::Rec
         if track_changed {
             last_identity = identity;
         }
+        // With the Spotify app closed there is nothing to mirror, so make no requests.
+        let spotify_open = snapshot.spotify_running;
         let should_poll = match trigger {
             Trigger::State => track_changed || !matches!(snapshot.auth, Auth::SignedIn { .. }),
-            Trigger::Visible | Trigger::Tick => is_visible,
+            Trigger::Visible | Trigger::Tick => is_visible && spotify_open,
             Trigger::Command => {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                is_visible
+                tokio::time::sleep(COMMAND_SETTLE).await;
+                is_visible && spotify_open
             }
         };
         if !should_poll {
@@ -86,8 +98,31 @@ pub async fn run(store: Store, auth: Arc<Authenticator>, mut visible: watch::Rec
         let client = auth.client().map(RspotifyApi::new);
         let signed_in = matches!(snapshot.auth, Auth::SignedIn { .. });
         let api = client.as_ref().map(|api| api as &dyn SpotifyApi);
-        if let Some(delay) = poll_cycle(&store, api, signed_in, is_visible, &mut poll_state).await {
-            tokio::time::sleep(delay).await;
+        let mut retries = 0;
+        loop {
+            let volume_hold = auth.volume_recently_set();
+            if let Some(delay) = poll_cycle(
+                &store,
+                api,
+                signed_in,
+                is_visible,
+                volume_hold,
+                &mut poll_state,
+            )
+            .await
+            {
+                tokio::time::sleep(delay).await;
+                break;
+            }
+            let awaiting_match = signed_in
+                && is_visible
+                && poll_state.session_active
+                && poll_state.last_match_missed;
+            if !awaiting_match || retries >= MATCH_RETRIES || !track_changed {
+                break;
+            }
+            retries += 1;
+            tokio::time::sleep(MATCH_RETRY_DELAY).await;
         }
     }
 }
@@ -98,6 +133,11 @@ struct PollState {
     last_queue: Option<Instant>,
     last_liked: Option<Instant>,
     liked_track_id: Option<String>,
+    queue_track_id: Option<String>,
+    /// Whether the last playback poll found an active Spotify session.
+    session_active: bool,
+    /// Whether the last playback poll's track didn't match the local track.
+    last_match_missed: bool,
     requests: VecDeque<Instant>,
     backoff: Backoff,
 }
@@ -148,6 +188,7 @@ async fn poll_cycle(
     api: Option<&dyn SpotifyApi>,
     signed_in: bool,
     visible: bool,
+    volume_hold: bool,
     state: &mut PollState,
 ) -> Option<Duration> {
     if !signed_in || api.is_none() {
@@ -171,7 +212,9 @@ async fn poll_cycle(
         match with_refresh(api, || api.playback()).await {
             Ok(playback) => {
                 state.backoff.success();
-                matched_track_id = apply_playback(store, playback);
+                state.session_active = playback.is_some();
+                matched_track_id = apply_playback(store, playback, volume_hold);
+                state.last_match_missed = matched_track_id.is_none() && store.get().track.is_some();
             }
             Err(error) => {
                 if let Some(delay) = rate_limit_delay(state, &error) {
@@ -182,7 +225,7 @@ async fn poll_cycle(
         }
     }
 
-    if let Some(track_id) = matched_track_id {
+    if let Some(track_id) = matched_track_id.clone() {
         let changed = state.liked_track_id.as_deref() != Some(track_id.as_str());
         if changed && PollState::ready(state.last_liked, now) {
             state.last_liked = Some(now);
@@ -203,8 +246,20 @@ async fn poll_cycle(
         }
     }
 
-    if PollState::ready(state.last_queue, now) {
+    let queue_stale = state
+        .last_queue
+        .is_none_or(|last| now.duration_since(last) >= QUEUE_INTERVAL);
+    let queue_track_changed =
+        matched_track_id.is_some() && matched_track_id != state.queue_track_id;
+    // Without an active session Spotify returns an empty queue; keep the last one instead.
+    let queue_shown = store.get().mode == Mode::Full;
+    if state.session_active
+        && queue_shown
+        && PollState::ready(state.last_queue, now)
+        && (queue_stale || queue_track_changed)
+    {
         state.last_queue = Some(now);
+        state.queue_track_id.clone_from(&matched_track_id);
         state.note_request(now);
         match with_refresh(api, || api.queue()).await {
             Ok(queue) => {
@@ -247,14 +302,16 @@ fn rate_limit_delay(state: &mut PollState, error: &Error) -> Option<Duration> {
     }
 }
 
-fn apply_playback(store: &Store, playback: Option<api::Playback>) -> Option<String> {
-    let Some(playback) = playback else {
-        store.update(|player| {
-            player.volume_pct = None;
-            player.position = None;
-        });
-        return None;
-    };
+/// `volume_hold`: the user just set the volume, and this poll may predate it.
+fn apply_playback(
+    store: &Store,
+    playback: Option<api::Playback>,
+    volume_hold: bool,
+) -> Option<String> {
+    // No active Spotify session (e.g. paused for a while): keep the last known volume
+    // and queue so the knob and list don't go blank; Windows' media session still
+    // supplies the track and position.
+    let playback = playback?;
     let sampled_at_unix_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -263,7 +320,9 @@ fn apply_playback(store: &Store, playback: Option<api::Playback>) -> Option<Stri
         .unwrap_or(u64::MAX);
     let mut matched_id = None;
     store.update(|player| {
-        player.volume_pct = playback.volume_pct;
+        if !volume_hold {
+            player.volume_pct = playback.volume_pct;
+        }
         player.position = playback.position_ms.map(|ms| Position {
             ms,
             sampled_at_unix_ms,
@@ -272,7 +331,21 @@ fn apply_playback(store: &Store, playback: Option<api::Playback>) -> Option<Stri
             if same_track(current, remote) {
                 matched_id = remote.id.clone();
                 enrich_track(current, remote);
+            } else {
+                tracing::debug!(
+                    local_title = %current.title,
+                    local_artists = ?current.artists,
+                    remote_title = %remote.title,
+                    remote_artists = ?remote.artists,
+                    "Spotify's current track doesn't match the media session track"
+                );
             }
+        } else {
+            tracing::debug!(
+                has_local = player.track.is_some(),
+                has_remote = playback.track.is_some(),
+                "no track to enrich from Spotify playback"
+            );
         }
     });
     matched_id
@@ -293,6 +366,7 @@ fn normalized(value: &str) -> String {
 
 fn enrich_track(current: &mut Track, remote: &api::Track) {
     current.spotify_id.clone_from(&remote.id);
+    current.album_id.clone_from(&remote.album_id);
     current.duration_ms = Some(remote.duration_ms);
     if let Some(image) = preferred_image(&remote.images) {
         current.art = Some(Art::Url {
@@ -448,8 +522,8 @@ mod tests {
         let store = Store::new();
         let api = CountingApi::default();
         let mut state = PollState::default();
-        poll_cycle(&store, Some(&api), true, false, &mut state).await;
-        poll_cycle(&store, Some(&api), false, true, &mut state).await;
+        poll_cycle(&store, Some(&api), true, false, false, &mut state).await;
+        poll_cycle(&store, Some(&api), false, true, false, &mut state).await;
         assert_eq!(api.count(), 0);
         assert_eq!(store.get().queue, None);
     }
@@ -471,7 +545,7 @@ mod tests {
             liked: true,
         };
         let mut state = PollState::default();
-        poll_cycle(&store, Some(&api), true, true, &mut state).await;
+        poll_cycle(&store, Some(&api), true, true, false, &mut state).await;
 
         let snapshot = store.get();
         assert_eq!(api.count(), 3);
@@ -479,10 +553,23 @@ mod tests {
         assert_eq!(snapshot.position.unwrap().ms, 750);
         assert_eq!(snapshot.liked, Some(true));
         assert_eq!(snapshot.queue.unwrap().len(), 1);
-        assert_eq!(
-            snapshot.track.unwrap().spotify_id.as_deref(),
-            Some("track1")
-        );
+        let track = snapshot.track.unwrap();
+        assert_eq!(track.spotify_id.as_deref(), Some("track1"));
+        assert_eq!(track.album_id.as_deref(), Some("album1"));
+        assert_eq!(track.duration_ms, Some(1000));
+    }
+
+    #[test]
+    fn inactive_session_keeps_last_volume_and_queue() {
+        let store = Store::new();
+        store.update(|state| {
+            state.volume_pct = Some(50);
+            state.queue = Some(vec![local_track("Next")]);
+        });
+        assert_eq!(apply_playback(&store, None, false), None);
+        let snapshot = store.get();
+        assert_eq!(snapshot.volume_pct, Some(50));
+        assert_eq!(snapshot.queue.map(|queue| queue.len()), Some(1));
     }
 
     #[test]
@@ -529,8 +616,26 @@ mod tests {
                 position_ms: Some(250),
                 track: Some(remote_track("Song")),
             }),
+            false,
         );
         assert_eq!(store.get().playback, PlaybackState::Playing);
         assert_eq!(store.get().volume_pct, Some(55));
+    }
+
+    #[test]
+    fn volume_hold_keeps_a_just_set_volume() {
+        let store = Store::new();
+        store.update(|state| state.volume_pct = Some(80));
+        apply_playback(
+            &store,
+            Some(api::Playback {
+                is_playing: true,
+                volume_pct: Some(40),
+                position_ms: Some(0),
+                track: None,
+            }),
+            true,
+        );
+        assert_eq!(store.get().volume_pct, Some(80));
     }
 }

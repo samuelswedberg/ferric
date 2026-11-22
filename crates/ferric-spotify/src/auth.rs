@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     net::{SocketAddr, TcpListener},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
     },
     time::Duration,
@@ -26,7 +26,9 @@ const REDIRECT_URI: &str = "http://127.0.0.1:8898/callback";
 const CALLBACK_ADDR: &str = "127.0.0.1:8898";
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 const CALLBACK_SUCCESS: &str = "You're signed in to Ferric. You can close this tab.";
-const SCOPES: [&str; 5] = [
+const SCOPES: [&str; 6] = [
+    // Needed for the profile's `product` (Premium vs free).
+    "user-read-private",
     "user-read-playback-state",
     "user-read-currently-playing",
     "user-modify-playback-state",
@@ -160,6 +162,8 @@ pub struct Authenticator {
     client: RwLock<Option<AuthCodePkceSpotify>>,
     busy: AtomicBool,
     runtime: AuthRuntime,
+    /// When the user last set the volume (unix ms); see `volume_recently_set`.
+    volume_set_at_ms: AtomicU64,
 }
 
 impl Authenticator {
@@ -174,7 +178,21 @@ impl Authenticator {
             client: RwLock::new(None),
             busy: AtomicBool::new(false),
             runtime,
+            volume_set_at_ms: AtomicU64::new(0),
         }
+    }
+
+    /// Records that the user just set the volume (called before and after the request).
+    pub(crate) fn note_volume_set(&self) {
+        self.volume_set_at_ms
+            .store(now_unix_ms(), Ordering::Relaxed);
+    }
+
+    /// True for 2 s after the user set the volume: a poll then may still report the old
+    /// value and must not move the knob back.
+    pub(crate) fn volume_recently_set(&self) -> bool {
+        const HOLD_MS: u64 = 2_000;
+        now_unix_ms().saturating_sub(self.volume_set_at_ms.load(Ordering::Relaxed)) < HOLD_MS
     }
 
     pub async fn set_client_id(&self, id: String) -> Result<(), AuthError> {
@@ -261,7 +279,7 @@ impl Authenticator {
             .display_name
             .unwrap_or_else(|| profile.id.to_string());
         #[allow(deprecated)]
-        let premium = profile.product == Some(SubscriptionLevel::Premium);
+        let premium = is_premium(profile.product);
         *self.client.write().expect("auth client lock poisoned") = Some(client);
         self.set_auth(Auth::SignedIn {
             display_name,
@@ -351,7 +369,7 @@ impl Authenticator {
             .display_name
             .unwrap_or_else(|| profile.id.to_string());
         #[allow(deprecated)]
-        let premium = profile.product == Some(SubscriptionLevel::Premium);
+        let premium = is_premium(profile.product);
         *self.client.write().expect("auth client lock poisoned") = Some(client);
         self.set_auth(Auth::SignedIn {
             display_name,
@@ -570,6 +588,23 @@ async fn parse_spotify_error(error: ClientError) -> ParsedSpotifyError {
     }
 }
 
+/// Spotify only reports the plan with the `user-read-private` scope; a sign-in from before
+/// Ferric asked for it has no `product`. Unknown counts as Premium: a free account gets a
+/// clear "Premium is required" error on its first control anyway, so don't nag on a guess.
+#[allow(deprecated)]
+fn is_premium(product: Option<SubscriptionLevel>) -> bool {
+    product.is_none_or(|level| level == SubscriptionLevel::Premium)
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -579,6 +614,14 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    #[allow(deprecated)]
+    fn premium_unknown_counts_as_premium() {
+        assert!(is_premium(Some(SubscriptionLevel::Premium)));
+        assert!(!is_premium(Some(SubscriptionLevel::Free)));
+        assert!(is_premium(None));
+    }
 
     const CLIENT_ID: &str = "0123456789abcdef0123456789abcdef";
 

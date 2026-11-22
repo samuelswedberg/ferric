@@ -11,7 +11,6 @@
   import UpdateBar from "./lib/components/update/UpdateBar.svelte";
   import {
     nextMode,
-    queueShouldBeVisible,
     stepVolume,
     UNKNOWN_VOLUME_RESET_MS,
     VOLUME_RESET_MS,
@@ -24,6 +23,37 @@
   let volumeDisplay = $state<VolumeDisplay>(null);
   let volumeTimer: ReturnType<typeof setTimeout> | null = null;
   let lastQueueVisible: boolean | null = null;
+
+  // Hovering wakes a faded window; it stays awake for another idle period after the
+  // pointer leaves, so the fade timer effectively restarts on every visit.
+  const IDLE_REARM_MS = 30_000;
+  let pointerInside = $state(false);
+  let awake = $state(false);
+  let awakeTimer: ReturnType<typeof setTimeout> | null = null;
+  const faded = $derived(playerStore.idleOpacity < 1 && !pointerInside && !awake);
+  /** Card and Strip are small; at the Full-mode fade they practically vanish. */
+  const COMPACT_IDLE_FLOOR = 0.65;
+  const idleOpacity = $derived(
+    playerStore.playerState?.mode === "full"
+      ? playerStore.idleOpacity
+      : Math.max(playerStore.idleOpacity, COMPACT_IDLE_FLOOR),
+  );
+
+  function onShellEnter(): void {
+    pointerInside = true;
+    if (awakeTimer !== null) clearTimeout(awakeTimer);
+    awakeTimer = null;
+  }
+
+  function onShellLeave(): void {
+    pointerInside = false;
+    awake = true;
+    if (awakeTimer !== null) clearTimeout(awakeTimer);
+    awakeTimer = setTimeout(() => {
+      awake = false;
+      awakeTimer = null;
+    }, IDLE_REARM_MS);
+  }
 
   function rgbCss(rgb: Rgb): string {
     return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
@@ -122,7 +152,9 @@
   $effect(() => {
     const state = playerStore.playerState;
     if (!state) return;
-    const visible = queueShouldBeVisible(state.mode, playerStore.isHidden);
+    // Spotify polling runs whenever the window is shown (any mode); the backend limits
+    // the queue fetch to Full mode itself.
+    const visible = !playerStore.isHidden;
     if (visible === lastQueueVisible) return;
     lastQueueVisible = visible;
     void setQueueVisible(visible).catch(reportError);
@@ -140,12 +172,14 @@
 
 <svelte:head><title>Ferric</title></svelte:head>
 <svelte:window onkeydown={onGlobalKeyDown} onwheel={onWheel} />
+<svelte:body onpointerenter={onShellEnter} onpointerleave={onShellLeave} />
 
 <div
   class="app-shell"
-  style="--accent: {accentCss}; --on-accent: {onAccentCss}; transition: {playerStore.reducedMotion
+  class:idle={faded}
+  style="--accent: {accentCss}; --on-accent: {onAccentCss}; --idle-opacity: {idleOpacity}; transition: {playerStore.reducedMotion
     ? 'none'
-    : 'color 300ms ease'};"
+    : 'color 300ms ease, opacity 600ms ease'};"
 >
   {#if playerStore.playerState}
     {#key playerStore.playerState.mode}
@@ -189,18 +223,25 @@
 </div>
 
 <style>
+  .app-shell.idle {
+    opacity: var(--idle-opacity);
+  }
+
   .app-shell {
     position: relative;
     width: 100vw;
     height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: grid;
+    place-items: start;
     background: transparent;
+    overflow: hidden;
   }
 
+  /* During a mode switch the old and new views cross-fade in the same cell, anchored
+     top-left like the window resize, instead of sitting side by side. */
   .mode-frame {
+    grid-area: 1 / 1;
     position: relative;
-    transform-origin: center;
+    transform-origin: top left;
   }
 </style>

@@ -23,7 +23,7 @@ ferric-theme = { path = "../crates/ferric-theme" }
 notify = "8"
 reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls"] }
 serde.workspace = true
-tauri = { workspace = true, features = ["tray-icon"] }
+tauri = { workspace = true, features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener.workspace = true
@@ -39,4 +39,4 @@ async-trait.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_WinRT", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_WinRT", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

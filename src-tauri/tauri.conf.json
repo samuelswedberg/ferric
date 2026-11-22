@@ -21,7 +21,7 @@
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "shadow": true
+        "shadow": false
       }
     ],
     "trayIcon": {
@@ -31,7 +31,11 @@
       "tooltip": "Ferric"
     },
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPCACHE/art/**"]
+      }
     }
   },
   "bundle": {

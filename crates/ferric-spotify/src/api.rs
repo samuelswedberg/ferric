@@ -2,10 +2,11 @@ use async_trait::async_trait;
 use rspotify::{
     clients::{BaseClient, OAuthClient},
     http::HttpError,
-    model::{Id, LibraryId, PlayableItem, TrackId},
+    model::{LibraryId, TrackId},
     AuthCodePkceSpotify, ClientError,
 };
-use serde_json::json;
+use serde::Deserialize;
+use serde_json::{json, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Image {
@@ -100,32 +101,25 @@ impl RspotifyApi {
 
 #[async_trait]
 impl SpotifyApi for RspotifyApi {
+    // Playback and queue are fetched raw and parsed with Ferric's own lenient types:
+    // rspotify's typed models require track fields Spotify no longer returns to
+    // development-mode apps, and then silently drop the whole track.
     async fn playback(&self) -> Result<Option<Playback>, Error> {
-        self.client
-            .current_playback(None, None::<[&rspotify::model::AdditionalType; 0]>)
+        let body = self
+            .client
+            .api_get("me/player", &Default::default())
             .await
-            .map(|context| {
-                context.map(|context| Playback {
-                    is_playing: context.is_playing,
-                    volume_pct: context
-                        .device
-                        .volume_percent
-                        .and_then(|value| u8::try_from(value).ok()),
-                    position_ms: context
-                        .progress
-                        .and_then(|value| u64::try_from(value.num_milliseconds()).ok()),
-                    track: context.item.as_ref().and_then(map_item),
-                })
-            })
-            .map_err(map_error)
+            .map_err(map_error)?;
+        Ok(parse_playback(&body))
     }
 
     async fn queue(&self) -> Result<Vec<Track>, Error> {
-        self.client
-            .current_user_queue()
+        let body = self
+            .client
+            .api_get("me/player/queue", &Default::default())
             .await
-            .map(|queue| queue.queue.iter().filter_map(map_item).collect())
-            .map_err(map_error)
+            .map_err(map_error)?;
+        Ok(parse_queue(&body))
     }
 
     async fn library_contains(&self, track_id: &str) -> Result<bool, Error> {
@@ -185,31 +179,132 @@ impl SpotifyApi for RspotifyApi {
     }
 }
 
-fn map_item(item: &PlayableItem) -> Option<Track> {
-    let PlayableItem::Track(track) = item else {
+#[derive(Deserialize)]
+struct RawPlayback {
+    #[serde(default)]
+    is_playing: bool,
+    progress_ms: Option<u64>,
+    device: Option<RawDevice>,
+    item: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct RawDevice {
+    volume_percent: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct RawQueue {
+    #[serde(default)]
+    queue: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct RawTrack {
+    id: Option<String>,
+    name: String,
+    #[serde(default)]
+    artists: Vec<RawNamed>,
+    album: Option<RawAlbum>,
+    #[serde(default)]
+    duration_ms: u64,
+}
+
+#[derive(Deserialize)]
+struct RawNamed {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct RawAlbum {
+    id: Option<String>,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    images: Vec<RawImage>,
+}
+
+#[derive(Deserialize)]
+struct RawImage {
+    url: String,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+/// `GET me/player`; an empty body (204) means nothing is playing.
+fn parse_playback(body: &str) -> Option<Playback> {
+    if body.trim().is_empty() {
         return None;
+    }
+    let raw: RawPlayback = match serde_json::from_str(body) {
+        Ok(raw) => raw,
+        Err(error) => {
+            tracing::warn!(%error, "couldn't parse Spotify playback");
+            return None;
+        }
     };
+    Some(Playback {
+        is_playing: raw.is_playing,
+        volume_pct: raw
+            .device
+            .and_then(|device| device.volume_percent)
+            .and_then(|value| u8::try_from(value).ok()),
+        position_ms: raw.progress_ms,
+        track: raw.item.as_ref().and_then(parse_item),
+    })
+}
+
+fn parse_queue(body: &str) -> Vec<Track> {
+    match serde_json::from_str::<RawQueue>(body) {
+        Ok(raw) => raw.queue.iter().filter_map(parse_item).collect(),
+        Err(error) => {
+            tracing::warn!(%error, "couldn't parse Spotify queue");
+            Vec::new()
+        }
+    }
+}
+
+/// Maps a playable item; episodes and unreadable items are skipped.
+fn parse_item(item: &Value) -> Option<Track> {
+    let kind = item.get("type").and_then(Value::as_str);
+    if kind.is_some_and(|kind| kind != "track") {
+        return None;
+    }
+    let track = match RawTrack::deserialize(item) {
+        Ok(track) => track,
+        Err(error) => {
+            tracing::debug!(%error, "skipping a Spotify item that isn't a readable track");
+            return None;
+        }
+    };
+    let album = track.album;
     Some(Track {
-        id: track.id.as_ref().map(|id| id.id().to_owned()),
-        title: track.name.clone(),
+        id: track.id,
+        title: track.name,
         artists: track
             .artists
-            .iter()
-            .map(|artist| artist.name.clone())
+            .into_iter()
+            .map(|artist| artist.name)
             .collect(),
-        album: (!track.album.name.is_empty()).then(|| track.album.name.clone()),
-        album_id: track.album.id.as_ref().map(|id| id.id().to_owned()),
-        duration_ms: u64::try_from(track.duration.num_milliseconds()).unwrap_or(0),
-        images: track
-            .album
-            .images
-            .iter()
-            .map(|image| Image {
-                url: image.url.clone(),
-                width: image.width,
-                height: image.height,
+        album: album
+            .as_ref()
+            .map(|album| album.name.clone())
+            .filter(|name| !name.is_empty()),
+        album_id: album.as_ref().and_then(|album| album.id.clone()),
+        duration_ms: track.duration_ms,
+        images: album
+            .map(|album| {
+                album
+                    .images
+                    .into_iter()
+                    .map(|image| Image {
+                        url: image.url,
+                        width: image.width,
+                        height: image.height,
+                    })
+                    .collect()
             })
-            .collect(),
+            .unwrap_or_default(),
     })
 }
 
@@ -252,11 +347,47 @@ mod tests {
 
     #[test]
     fn recorded_track_json_maps_to_internal_shape() {
-        let item: PlayableItem = serde_json::from_str(TRACK_JSON).unwrap();
-        let track = map_item(&item).unwrap();
+        let item: Value = serde_json::from_str(TRACK_JSON).unwrap();
+        let track = parse_item(&item).unwrap();
+        assert_eq!(track.id.as_deref(), Some("track1"));
         assert_eq!(track.title, "Song");
         assert_eq!(track.artists, ["Artist"]);
+        assert_eq!(track.album.as_deref(), Some("Album"));
+        assert_eq!(track.album_id.as_deref(), Some("album1"));
         assert_eq!(track.duration_ms, 123_000);
         assert_eq!(track.images.len(), 2);
+    }
+
+    /// Spotify trims track objects for development-mode apps (no available_markets,
+    /// external_ids, popularity, linked_from, ...). These must still parse.
+    #[test]
+    fn trimmed_track_json_still_parses() {
+        let body = r#"{"is_playing":true,"progress_ms":4200,"device":{"volume_percent":42},
+          "item":{"type":"track","id":"t2","name":"S.E.X. Narcissist","duration_ms":201000,
+            "artists":[{"name":"VIOLENT VIRA"}],
+            "album":{"id":"a2","name":"Lover Of A Ghost","images":[{"url":"https://i.scdn.co/x.jpg","width":640,"height":640}]}}}"#;
+        let playback = parse_playback(body).unwrap();
+        assert!(playback.is_playing);
+        assert_eq!(playback.volume_pct, Some(42));
+        assert_eq!(playback.position_ms, Some(4200));
+        let track = playback.track.unwrap();
+        assert_eq!(track.id.as_deref(), Some("t2"));
+        assert_eq!(track.duration_ms, 201_000);
+        assert_eq!(track.album_id.as_deref(), Some("a2"));
+    }
+
+    #[test]
+    fn empty_playback_body_means_nothing_playing() {
+        assert_eq!(parse_playback(""), None);
+    }
+
+    #[test]
+    fn queue_skips_episodes_and_keeps_tracks() {
+        let body = r#"{"currently_playing":null,"queue":[
+          {"type":"episode","id":"e1","name":"Podcast","duration_ms":1},
+          {"type":"track","id":"t3","name":"Next","duration_ms":1000,"artists":[{"name":"A"}],"album":{"id":"a3","name":"B","images":[]}}]}"#;
+        let queue = parse_queue(body);
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].title, "Next");
     }
 }
