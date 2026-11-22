@@ -17,7 +17,8 @@ tauri-build.workspace = true
 [dependencies]
 anyhow.workspace = true
 ferric-core = { path = "../crates/ferric-core" }
-tauri.workspace = true
+tauri = { workspace = true, features = ["tray-icon"] }
+tauri-plugin-window-state.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -19,9 +19,17 @@
         "resizable": false,
         "decorations": false,
         "transparent": true,
-        "alwaysOnTop": true
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true
       }
     ],
+    "trayIcon": {
+      "id": "main",
+      "iconPath": "icons/32x32.png",
+      "showMenuOnLeftClick": false,
+      "tooltip": "Ferric"
+    },
     "security": {
       "csp": null
     }
