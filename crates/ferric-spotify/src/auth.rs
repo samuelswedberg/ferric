@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    net::TcpListener,
+    net::{SocketAddr, TcpListener},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
@@ -11,8 +11,10 @@ use std::{
 use ferric_core::{model::Auth, store::Store};
 use rspotify::{
     clients::{BaseClient, OAuthClient},
+    http::HttpError,
     model::SubscriptionLevel,
-    AuthCodePkceSpotify, CallbackError, Config, Credentials, OAuth, Token, TokenCallback,
+    AuthCodePkceSpotify, CallbackError, ClientError, Config, Credentials, OAuth, Token,
+    TokenCallback, DEFAULT_API_BASE_URL, DEFAULT_AUTH_BASE_URL,
 };
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -130,20 +132,48 @@ impl TokenStore for MemoryTokenStore {
     }
 }
 
+type BrowserOpener = Arc<dyn Fn(String, SocketAddr) -> Result<(), String> + Send + Sync>;
+
+struct AuthRuntime {
+    callback_addr: String,
+    callback_timeout: Duration,
+    auth_base_url: String,
+    api_base_url: String,
+    open_browser: BrowserOpener,
+}
+
+impl Default for AuthRuntime {
+    fn default() -> Self {
+        Self {
+            callback_addr: CALLBACK_ADDR.to_owned(),
+            callback_timeout: CALLBACK_TIMEOUT,
+            auth_base_url: DEFAULT_AUTH_BASE_URL.to_owned(),
+            api_base_url: DEFAULT_API_BASE_URL.to_owned(),
+            open_browser: Arc::new(|url, _| open::that(url).map_err(|error| error.to_string())),
+        }
+    }
+}
+
 pub struct Authenticator {
     store: Store,
     tokens: Arc<dyn TokenStore>,
     client: RwLock<Option<AuthCodePkceSpotify>>,
     busy: AtomicBool,
+    runtime: AuthRuntime,
 }
 
 impl Authenticator {
     pub fn new(store: Store, tokens: Arc<dyn TokenStore>) -> Self {
+        Self::with_runtime(store, tokens, AuthRuntime::default())
+    }
+
+    fn with_runtime(store: Store, tokens: Arc<dyn TokenStore>, runtime: AuthRuntime) -> Self {
         Self {
             store,
             tokens,
             client: RwLock::new(None),
             busy: AtomicBool::new(false),
+            runtime,
         }
     }
 
@@ -169,11 +199,7 @@ impl Authenticator {
         let result = self.sign_in_inner().await;
         self.busy.store(false, Ordering::Release);
         if let Err(error) = &result {
-            self.set_auth(if matches!(error, AuthError::NoClientId) {
-                Auth::NoClientId
-            } else {
-                Auth::SignedOut
-            });
+            self.set_auth(auth_state_for_sign_in_error(error));
         }
         result
     }
@@ -183,24 +209,37 @@ impl Authenticator {
         validate_client_id(&stored.client_id)?;
         self.set_auth(Auth::SigningIn);
 
-        let listener = TcpListener::bind(CALLBACK_ADDR).map_err(|_| AuthError::PortInUse)?;
+        let listener =
+            TcpListener::bind(&self.runtime.callback_addr).map_err(|_| AuthError::PortInUse)?;
+        let local_addr = listener
+            .local_addr()
+            .map_err(|error| AuthError::Worker(error.to_string()))?;
         let server = Server::from_listener(listener, None)
             .map_err(|error| AuthError::Worker(error.to_string()))?;
-        let mut client = build_client(&stored.client_id, Arc::clone(&self.tokens));
+        let mut client = build_client(
+            &stored.client_id,
+            Arc::clone(&self.tokens),
+            &self.runtime.auth_base_url,
+            &self.runtime.api_base_url,
+        );
         let expected_state = client.oauth.state.clone();
         let authorize_url = client.get_authorize_url(None).map_err(spotify_error)?;
 
-        tokio::task::spawn_blocking(move || open::that(authorize_url))
+        let open_browser = Arc::clone(&self.runtime.open_browser);
+        tokio::task::spawn_blocking(move || open_browser(authorize_url, local_addr))
             .await
             .map_err(|error| AuthError::Worker(error.to_string()))?
-            .map_err(|error| AuthError::Browser(error.to_string()))?;
+            .map_err(AuthError::Browser)?;
+        let callback_timeout = self.runtime.callback_timeout;
         let code = tokio::task::spawn_blocking(move || {
-            receive_callback(server, &expected_state, CALLBACK_TIMEOUT)
+            receive_callback(server, &expected_state, callback_timeout)
         })
         .await
         .map_err(|error| AuthError::Worker(error.to_string()))??;
 
-        client.request_token(&code).await.map_err(spotify_error)?;
+        if let Err(error) = client.request_token(&code).await {
+            return Err(parse_spotify_error(error).await.auth_error);
+        }
         let refresh_token = client
             .token
             .lock()
@@ -214,7 +253,10 @@ impl Authenticator {
             refresh_token: Some(refresh_token),
         })?;
 
-        let profile = client.current_user().await.map_err(spotify_error)?;
+        let profile = match client.current_user().await {
+            Ok(profile) => profile,
+            Err(error) => return Err(parse_spotify_error(error).await.auth_error),
+        };
         let display_name = profile
             .display_name
             .unwrap_or_else(|| profile.id.to_string());
@@ -253,7 +295,12 @@ impl Authenticator {
             return Ok(());
         };
 
-        let client = build_client(&stored.client_id, Arc::clone(&self.tokens));
+        let client = build_client(
+            &stored.client_id,
+            Arc::clone(&self.tokens),
+            &self.runtime.auth_base_url,
+            &self.runtime.api_base_url,
+        );
         *client
             .token
             .lock()
@@ -263,17 +310,20 @@ impl Authenticator {
             ..Token::default()
         });
         if let Err(error) = client.refresh_token().await {
-            if is_invalid_grant(&error) {
-                self.tokens.save(&StoredAuth {
+            let parsed = parse_spotify_error(error).await;
+            if parsed.is_invalid_grant {
+                if let Err(save_error) = self.tokens.save(&StoredAuth {
                     client_id: stored.client_id,
                     refresh_token: None,
-                })?;
+                }) {
+                    self.set_error(&save_error);
+                    return Err(save_error);
+                }
                 self.set_auth(Auth::SignedOut);
                 return Ok(());
             }
-            let error = spotify_error(error);
-            self.set_error(&error);
-            return Err(error);
+            self.set_error(&parsed.auth_error);
+            return Err(parsed.auth_error);
         }
 
         // Spotify may omit a replacement refresh token. Retain the stored one in that case.
@@ -292,7 +342,7 @@ impl Authenticator {
         let profile = match client.current_user().await {
             Ok(profile) => profile,
             Err(error) => {
-                let error = spotify_error(error);
+                let error = parse_spotify_error(error).await.auth_error;
                 self.set_error(&error);
                 return Err(error);
             }
@@ -328,7 +378,12 @@ impl Authenticator {
     }
 }
 
-fn build_client(client_id: &str, tokens: Arc<dyn TokenStore>) -> AuthCodePkceSpotify {
+fn build_client(
+    client_id: &str,
+    tokens: Arc<dyn TokenStore>,
+    auth_base_url: &str,
+    api_base_url: &str,
+) -> AuthCodePkceSpotify {
     let callback_client_id = client_id.to_owned();
     let callback = TokenCallback(Box::new(move |token| {
         if let Some(refresh_token) = token.refresh_token {
@@ -342,6 +397,8 @@ fn build_client(client_id: &str, tokens: Arc<dyn TokenStore>) -> AuthCodePkceSpo
         Ok(())
     }));
     let config = Config {
+        auth_base_url: auth_base_url.to_owned(),
+        api_base_url: api_base_url.to_owned(),
         token_cached: false,
         token_refreshing: true,
         token_callback_fn: Arc::new(Some(callback)),
@@ -414,22 +471,167 @@ fn validate_client_id(id: &str) -> Result<(), AuthError> {
     }
 }
 
-fn spotify_error(error: rspotify::ClientError) -> AuthError {
+fn auth_state_for_sign_in_error(error: &AuthError) -> Auth {
+    match error {
+        AuthError::NoClientId => Auth::NoClientId,
+        AuthError::AuthorizationDenied(code) if code.eq_ignore_ascii_case("access_denied") => {
+            Auth::SignedOut
+        }
+        other => Auth::Error {
+            message: other.to_string(),
+        },
+    }
+}
+
+fn spotify_error(error: ClientError) -> AuthError {
     AuthError::Spotify(error.to_string())
 }
 
-fn is_invalid_grant(error: &rspotify::ClientError) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    // rspotify 0.16 discards OAuth error response bodies. A 400 from the refresh
-    // endpoint with Ferric's fixed, validated request can only be a rejected grant.
-    message.contains("invalid_grant") || message.ends_with("status code 400")
+#[derive(Deserialize)]
+struct OAuthErrorBody {
+    error: String,
+    #[serde(default)]
+    error_description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WebApiErrorEnvelope {
+    error: WebApiErrorBody,
+}
+
+#[derive(Deserialize)]
+struct WebApiErrorBody {
+    message: String,
+}
+
+struct ParsedSpotifyError {
+    is_invalid_grant: bool,
+    auth_error: AuthError,
+}
+
+async fn parse_spotify_error(error: ClientError) -> ParsedSpotifyError {
+    match error {
+        ClientError::Http(http_error) => match *http_error {
+            HttpError::StatusCode(response) => {
+                let status = response.status();
+                let body = response.text().await.ok();
+                if let Some(oauth) = body
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str::<OAuthErrorBody>(text).ok())
+                {
+                    let is_invalid_grant =
+                        status.as_u16() == 400 && oauth.error.eq_ignore_ascii_case("invalid_grant");
+                    let detail = match oauth
+                        .error_description
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|description| !description.is_empty())
+                    {
+                        Some(description) => format!(
+                            "http error: status code {status} ({}: {description})",
+                            oauth.error
+                        ),
+                        None => format!("http error: status code {status} ({})", oauth.error),
+                    };
+                    return ParsedSpotifyError {
+                        is_invalid_grant,
+                        auth_error: AuthError::Spotify(detail),
+                    };
+                }
+                if let Some(web_api) = body
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str::<WebApiErrorEnvelope>(text).ok())
+                {
+                    let message = web_api.error.message.trim();
+                    let detail = if message.is_empty() {
+                        format!("http error: status code {status}")
+                    } else {
+                        format!("http error: status code {status} ({message})")
+                    };
+                    return ParsedSpotifyError {
+                        is_invalid_grant: false,
+                        auth_error: AuthError::Spotify(detail),
+                    };
+                }
+                ParsedSpotifyError {
+                    is_invalid_grant: false,
+                    auth_error: AuthError::Spotify(format!("http error: status code {status}")),
+                }
+            }
+            other => ParsedSpotifyError {
+                is_invalid_grant: false,
+                auth_error: AuthError::Spotify(format!("http error: {other}")),
+            },
+        },
+        other => ParsedSpotifyError {
+            is_invalid_grant: false,
+            auth_error: AuthError::Spotify(other.to_string()),
+        },
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpStream,
+        thread,
+    };
+
     use super::*;
 
     const CLIENT_ID: &str = "0123456789abcdef0123456789abcdef";
+
+    fn send_http_request(addr: SocketAddr, target: &str) {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        write!(
+            stream,
+            "GET {target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
+        let mut response = Vec::new();
+        let _ = stream.read_to_end(&mut response);
+    }
+
+    fn extract_state(authorize_url: &str) -> String {
+        let parsed = Url::parse(authorize_url).unwrap();
+        parsed
+            .query_pairs()
+            .find_map(|(key, value)| (key == "state").then(|| value.into_owned()))
+            .expect("authorize URL missing state")
+    }
+
+    fn spawn_single_response_server(
+        status: u16,
+        content_type: &'static str,
+        body: &'static str,
+    ) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Server::from_listener(listener, None).unwrap();
+        let handle = thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .expect("expected request to mock server");
+            let mut response = Response::from_string(body).with_status_code(StatusCode(status));
+            if let Ok(header) = Header::from_bytes("Content-Type", content_type) {
+                response.add_header(header);
+            }
+            request.respond(response).unwrap();
+        });
+        (format!("http://{addr}/"), handle)
+    }
+
+    fn test_runtime(open_browser: BrowserOpener) -> AuthRuntime {
+        AuthRuntime {
+            callback_addr: "127.0.0.1:0".into(),
+            callback_timeout: Duration::from_secs(2),
+            auth_base_url: DEFAULT_AUTH_BASE_URL.into(),
+            api_base_url: DEFAULT_API_BASE_URL.into(),
+            open_browser,
+        }
+    }
 
     #[test]
     fn client_id_validation_is_exact() {
@@ -503,5 +705,329 @@ mod tests {
         auth.restore().await.unwrap();
         assert_eq!(store.get().auth, Auth::SignedOut);
         assert!(auth.client().is_none());
+    }
+
+    #[tokio::test]
+    async fn sign_in_without_client_id_sets_no_client_id() {
+        let store = Store::new();
+        let auth = Authenticator::with_runtime(
+            store.clone(),
+            Arc::new(MemoryTokenStore::default()),
+            test_runtime(Arc::new(|_, _| panic!("browser should not open"))),
+        );
+
+        let err = auth.sign_in().await.unwrap_err();
+        assert!(matches!(err, AuthError::NoClientId));
+        assert_eq!(store.get().auth, Auth::NoClientId);
+    }
+
+    #[tokio::test]
+    async fn sign_in_port_in_use_sets_error_state() {
+        let occupied = TcpListener::bind("127.0.0.1:0").unwrap();
+        let occupied_addr = occupied.local_addr().unwrap().to_string();
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: None,
+        })));
+        let mut runtime = test_runtime(Arc::new(|_, _| panic!("browser should not open")));
+        runtime.callback_addr = occupied_addr;
+        let auth = Authenticator::with_runtime(store.clone(), tokens, runtime);
+
+        let err = auth.sign_in().await.unwrap_err();
+        assert!(matches!(err, AuthError::PortInUse));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: AuthError::PortInUse.to_string(),
+            }
+        );
+        drop(occupied);
+    }
+
+    #[tokio::test]
+    async fn sign_in_timeout_sets_error_state() {
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: None,
+        })));
+        let mut runtime = test_runtime(Arc::new(|_, _| Ok(())));
+        runtime.callback_timeout = Duration::from_millis(20);
+        let auth = Authenticator::with_runtime(store.clone(), tokens, runtime);
+
+        let err = auth.sign_in().await.unwrap_err();
+        assert!(matches!(err, AuthError::Timeout));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: AuthError::Timeout.to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn sign_in_invalid_state_sets_error_state() {
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: None,
+        })));
+        let runtime = test_runtime(Arc::new(|_, addr| {
+            thread::spawn(move || {
+                send_http_request(addr, "/callback?code=abc&state=wrong");
+            });
+            Ok(())
+        }));
+        let auth = Authenticator::with_runtime(store.clone(), tokens, runtime);
+
+        let err = auth.sign_in().await.unwrap_err();
+        assert!(matches!(err, AuthError::InvalidState));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: AuthError::InvalidState.to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn sign_in_user_cancelled_sets_signed_out() {
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: None,
+        })));
+        let runtime = test_runtime(Arc::new(|authorize_url, addr| {
+            let state = extract_state(&authorize_url);
+            thread::spawn(move || {
+                send_http_request(
+                    addr,
+                    &format!("/callback?error=access_denied&state={state}"),
+                );
+            });
+            Ok(())
+        }));
+        let auth = Authenticator::with_runtime(store.clone(), tokens, runtime);
+
+        let err = auth.sign_in().await.unwrap_err();
+        assert!(matches!(
+            err,
+            AuthError::AuthorizationDenied(ref code) if code == "access_denied"
+        ));
+        assert_eq!(store.get().auth, Auth::SignedOut);
+    }
+
+    #[tokio::test]
+    async fn sign_in_spotify_callback_error_sets_error_state() {
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: None,
+        })));
+        let runtime = test_runtime(Arc::new(|authorize_url, addr| {
+            let state = extract_state(&authorize_url);
+            thread::spawn(move || {
+                send_http_request(addr, &format!("/callback?error=server_error&state={state}"));
+            });
+            Ok(())
+        }));
+        let auth = Authenticator::with_runtime(store.clone(), tokens, runtime);
+
+        let err = auth.sign_in().await.unwrap_err();
+        assert!(matches!(
+            err,
+            AuthError::AuthorizationDenied(ref code) if code == "server_error"
+        ));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: err.to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn sign_in_spotify_token_error_sets_error_state() {
+        let (auth_base_url, handle) = spawn_single_response_server(
+            400,
+            "application/json",
+            r#"{"error":"invalid_client","error_description":"Invalid client"}"#,
+        );
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: None,
+        })));
+        let mut runtime = test_runtime(Arc::new(|authorize_url, addr| {
+            let state = extract_state(&authorize_url);
+            thread::spawn(move || {
+                send_http_request(addr, &format!("/callback?code=test-code&state={state}"));
+            });
+            Ok(())
+        }));
+        runtime.auth_base_url = auth_base_url;
+        let auth = Authenticator::with_runtime(store.clone(), tokens, runtime);
+
+        let err = auth.sign_in().await.unwrap_err();
+        handle.join().unwrap();
+        assert!(matches!(err, AuthError::Spotify(_)));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: err.to_string(),
+            }
+        );
+        match store.get().auth {
+            Auth::Error { message } => {
+                assert!(message.contains("invalid_client"), "got: {message}");
+                assert!(message.contains("Invalid client"), "got: {message}");
+            }
+            other => panic!("expected Auth::Error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn sign_in_browser_error_sets_error_state() {
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: None,
+        })));
+        let runtime = test_runtime(Arc::new(|_, _| Err("browser unavailable".into())));
+        let auth = Authenticator::with_runtime(store.clone(), tokens, runtime);
+
+        let err = auth.sign_in().await.unwrap_err();
+        assert!(matches!(err, AuthError::Browser(_)));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: err.to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_invalid_grant_400_clears_refresh_token_and_signs_out() {
+        let (auth_base_url, handle) = spawn_single_response_server(
+            400,
+            "application/json",
+            r#"{"error":"invalid_grant","error_description":"Refresh token revoked"}"#,
+        );
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: Some("revoked-refresh-token".into()),
+        })));
+        let mut runtime = test_runtime(Arc::new(|_, _| panic!("browser should not open")));
+        runtime.auth_base_url = auth_base_url;
+        let auth = Authenticator::with_runtime(store.clone(), tokens.clone(), runtime);
+
+        auth.restore().await.unwrap();
+        handle.join().unwrap();
+        assert_eq!(store.get().auth, Auth::SignedOut);
+        assert_eq!(
+            tokens.load(),
+            Some(StoredAuth {
+                client_id: CLIENT_ID.into(),
+                refresh_token: None,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_other_400_sets_error_and_keeps_refresh_token() {
+        let (auth_base_url, handle) = spawn_single_response_server(
+            400,
+            "application/json",
+            r#"{"error":"invalid_client","error_description":"Invalid client"}"#,
+        );
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: Some("kept-refresh-token".into()),
+        })));
+        let mut runtime = test_runtime(Arc::new(|_, _| panic!("browser should not open")));
+        runtime.auth_base_url = auth_base_url;
+        let auth = Authenticator::with_runtime(store.clone(), tokens.clone(), runtime);
+
+        let err = auth.restore().await.unwrap_err();
+        handle.join().unwrap();
+        assert!(matches!(err, AuthError::Spotify(_)));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: err.to_string(),
+            }
+        );
+        match store.get().auth {
+            Auth::Error { message } => {
+                assert!(message.contains("invalid_client"), "got: {message}");
+            }
+            other => panic!("expected Auth::Error, got {other:?}"),
+        }
+        assert_eq!(
+            tokens.load().unwrap().refresh_token.as_deref(),
+            Some("kept-refresh-token")
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_non_json_400_sets_error_and_keeps_refresh_token() {
+        let (auth_base_url, handle) =
+            spawn_single_response_server(400, "text/plain", "Bad Request");
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: Some("kept-refresh-token".into()),
+        })));
+        let mut runtime = test_runtime(Arc::new(|_, _| panic!("browser should not open")));
+        runtime.auth_base_url = auth_base_url;
+        let auth = Authenticator::with_runtime(store.clone(), tokens.clone(), runtime);
+
+        let err = auth.restore().await.unwrap_err();
+        handle.join().unwrap();
+        assert!(matches!(err, AuthError::Spotify(_)));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: err.to_string(),
+            }
+        );
+        assert_eq!(
+            tokens.load().unwrap().refresh_token.as_deref(),
+            Some("kept-refresh-token")
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_500_with_invalid_grant_body_is_not_treated_as_invalid_grant() {
+        let (auth_base_url, handle) = spawn_single_response_server(
+            500,
+            "application/json",
+            r#"{"error":"invalid_grant","error_description":"transient"}"#,
+        );
+        let store = Store::new();
+        let tokens = Arc::new(MemoryTokenStore::new(Some(StoredAuth {
+            client_id: CLIENT_ID.into(),
+            refresh_token: Some("kept-refresh-token".into()),
+        })));
+        let mut runtime = test_runtime(Arc::new(|_, _| panic!("browser should not open")));
+        runtime.auth_base_url = auth_base_url;
+        let auth = Authenticator::with_runtime(store.clone(), tokens.clone(), runtime);
+
+        let err = auth.restore().await.unwrap_err();
+        handle.join().unwrap();
+        assert!(matches!(err, AuthError::Spotify(_)));
+        assert_eq!(
+            store.get().auth,
+            Auth::Error {
+                message: err.to_string(),
+            }
+        );
+        assert_eq!(
+            tokens.load().unwrap().refresh_token.as_deref(),
+            Some("kept-refresh-token")
+        );
     }
 }
