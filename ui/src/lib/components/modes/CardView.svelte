@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { windowDrag } from "../../windowDrag";
   import type { PlayerState } from "../../bindings/PlayerState";
   import { albumLink, trackLink } from "../../spotifyLinks";
   import { formatTime, playerStore, resolveArtSrc } from "../../state.svelte";
@@ -49,16 +50,12 @@
   const songUrl = $derived(spotifyRunning && track ? trackLink(track) : null);
   const albumUrl = $derived(spotifyRunning && track ? albumLink(track) : null);
 
-  function onDoubleClick(event: MouseEvent): void {
-    if (event.target === event.currentTarget) onModeSwitch();
-  }
 </script>
 
 <main
   class="plinth card-plinth"
-  data-tauri-drag-region
+  use:windowDrag={onModeSwitch}
   style="background-image: url({plinthTextureUrl})"
-  ondblclick={onDoubleClick}
 >
   <WindowChrome variant="card" {onModeSwitch} />
   <RecordDeck

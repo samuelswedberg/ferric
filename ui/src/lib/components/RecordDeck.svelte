@@ -230,6 +230,7 @@
     <button
       type="button"
       class="record-hit"
+      data-drag-handle
       class:interactive={spotifyRunning && songUrl !== null}
       disabled={!spotifyRunning || songUrl === null}
       tabindex={spotifyRunning && songUrl !== null ? 0 : -1}
@@ -288,6 +289,7 @@
   <button
     type="button"
     class="sleeve"
+    data-drag-handle
     class:interactive={spotifyRunning && albumUrl !== null}
     disabled={!spotifyRunning || albumUrl === null}
     tabindex={spotifyRunning && albumUrl !== null ? 0 : -1}

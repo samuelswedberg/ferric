@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { windowDrag } from "../../windowDrag";
   import { onMount } from "svelte";
   import type { PlayerState } from "../../bindings/PlayerState";
   import { albumLink, trackLink } from "../../spotifyLinks";
@@ -80,17 +81,13 @@
     return () => observer.disconnect();
   });
 
-  function onDoubleClick(event: MouseEvent): void {
-    if (event.target === event.currentTarget) onModeSwitch();
-  }
 </script>
 
 <main
   class="plinth strip-plinth"
   class:no-motion={reducedMotion}
-  data-tauri-drag-region
+  use:windowDrag={onModeSwitch}
   style="background-image: url({plinthTextureUrl})"
-  ondblclick={onDoubleClick}
 >
   <WindowChrome variant="strip" {onModeSwitch} />
   <RecordDeck
