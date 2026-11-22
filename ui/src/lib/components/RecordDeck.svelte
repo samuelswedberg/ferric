@@ -136,7 +136,7 @@
 
     const anim = el.animate(
       [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
-      { duration: 3600, iterations: Infinity, easing: "linear" },
+      { duration: 1800, iterations: Infinity, easing: "linear" },
     );
     anim.playbackRate = 0;
     anim.pause();

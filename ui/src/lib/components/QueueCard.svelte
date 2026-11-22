@@ -13,7 +13,7 @@
     top: 410px;
     width: 328px;
     height: 96px;
-    transform: rotate(-1.8deg);
+    transform: rotate(0.8deg);
     background-size: cover;
     background-position: center;
     background-color: #d6c8ac;
