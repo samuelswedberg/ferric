@@ -9,7 +9,7 @@ use std::{
 };
 
 use ferric_core::{model::Playback, store::Store};
-use notify::{RecursiveMode, Watcher};
+use notify::{EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::watch;
@@ -58,8 +58,16 @@ impl Default for Config {
 
 impl Config {
     fn normalized(mut self) -> Self {
-        self.grain = self.grain.clamp(0.0, 0.5);
-        self.idle_opacity = self.idle_opacity.clamp(0.0, 1.0);
+        self.grain = if self.grain.is_nan() {
+            0.2
+        } else {
+            self.grain.clamp(0.0, 0.5)
+        };
+        self.idle_opacity = if self.idle_opacity.is_nan() {
+            0.4
+        } else {
+            self.idle_opacity.clamp(0.0, 1.0)
+        };
         self
     }
 }
@@ -129,17 +137,17 @@ impl ConfigManager {
         &self.path
     }
 
-    fn replace(&self, config: Config) -> bool {
+    fn replace(&self, config: Config) -> Option<Config> {
         let mut current = self
             .current
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if *current == config {
-            return false;
+            return None;
         }
-        *current = config.clone();
+        let previous = std::mem::replace(&mut *current, config.clone());
         self.changes.send_replace(config);
-        true
+        Some(previous)
     }
 
     fn subscribe(&self) -> watch::Receiver<Config> {
@@ -206,11 +214,65 @@ pub fn set_start_with_windows(app: &AppHandle, enabled: bool) -> Result<(), Stri
     let manager = app.state::<ConfigManager>();
     let mut config = manager.current();
     config.start_with_windows = enabled;
-    let contents = toml::to_string_pretty(&config).map_err(|error| error.to_string())?;
+    let contents = fs::read_to_string(manager.path())
+        .ok()
+        .map(|existing| update_start_with_windows_in_toml(&existing, enabled))
+        .filter(|updated| {
+            parse(updated)
+                .map(|parsed| parsed.start_with_windows == enabled)
+                .unwrap_or(false)
+        })
+        .map(Ok)
+        .unwrap_or_else(|| toml::to_string_pretty(&config).map_err(|error| error.to_string()))?;
     fs::write(manager.path(), contents).map_err(|error| error.to_string())?;
     drop(manager);
     apply(app, config);
     Ok(())
+}
+
+fn update_start_with_windows_in_toml(existing: &str, enabled: bool) -> String {
+    let line_ending = if existing.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut lines: Vec<String> = existing.lines().map(str::to_owned).collect();
+    let mut first_section = None;
+    let mut replaced = false;
+
+    for (index, line) in lines.iter_mut().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            first_section = Some(index);
+            break;
+        }
+        if let Some(rest) = trimmed.strip_prefix("start_with_windows") {
+            let after_key = rest.trim_start();
+            if let Some(after_eq) = after_key.strip_prefix('=') {
+                let comment = after_eq
+                    .find('#')
+                    .map(|idx| format!(" {}", after_eq[idx..].trim_end()))
+                    .unwrap_or_default();
+                *line = format!("start_with_windows = {enabled}{comment}");
+                replaced = true;
+                break;
+            }
+        }
+    }
+
+    if !replaced {
+        let entry = format!("start_with_windows = {enabled}");
+        match first_section {
+            Some(index) => lines.insert(index, entry),
+            None => lines.push(entry),
+        }
+    }
+
+    let mut out = lines.join(line_ending);
+    if existing.ends_with('\n') || !out.is_empty() {
+        out.push_str(line_ending);
+    }
+    out
 }
 
 pub fn report_error(app: &AppHandle, message: impl Into<String>) {
@@ -270,12 +332,37 @@ fn relevant_event(
     app: &AppHandle,
 ) -> bool {
     match event {
-        Ok(event) => event.paths.iter().any(|changed| changed == path),
+        Ok(event) => {
+            matches!(
+                event.kind,
+                EventKind::Create(_)
+                    | EventKind::Modify(_)
+                    | EventKind::Remove(_)
+                    | EventKind::Any
+            ) && event
+                .paths
+                .iter()
+                .any(|changed| matches_config_path(changed, path))
+        }
         Err(error) => {
             tracing::warn!(%error, "config file watcher error");
             report_error(app, format!("Could not watch config.toml: {error}"));
             false
         }
+    }
+}
+
+fn matches_config_path(changed: &Path, config_path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        changed
+            .file_name()
+            .zip(config_path.file_name())
+            .is_some_and(|(left, right)| left.eq_ignore_ascii_case(right))
+    }
+    #[cfg(not(windows))]
+    {
+        changed.file_name() == config_path.file_name()
     }
 }
 
@@ -291,9 +378,9 @@ fn reload(app: &AppHandle, path: &Path) {
 }
 
 fn apply(app: &AppHandle, config: Config) {
-    if !app.state::<ConfigManager>().replace(config.clone()) {
+    let Some(previous) = app.state::<ConfigManager>().replace(config.clone()) else {
         return;
-    }
+    };
     if let Err(error) = app.emit(
         CONFIG_EVENT,
         ConfigPayload {
@@ -303,8 +390,12 @@ fn apply(app: &AppHandle, config: Config) {
     ) {
         tracing::warn!(%error, "failed to emit config");
     }
-    crate::hotkeys::apply(app, &config.hotkeys);
-    crate::autostart::apply(app, config.start_with_windows);
+    if previous.hotkeys != config.hotkeys {
+        crate::hotkeys::apply(app, &config.hotkeys);
+    }
+    if previous.start_with_windows != config.start_with_windows {
+        crate::autostart::apply(app, config.start_with_windows);
+    }
 }
 
 fn load(path: &Path) -> Result<Config, ParseError> {
@@ -318,9 +409,18 @@ fn parse(contents: &str) -> Result<Config, ParseError> {
         .map_err(|error| ParseError {
             line: error
                 .span()
-                .map(|span| contents[..span.start].lines().count().max(1))
+                .map(|span| line_number_at(contents, span.start))
                 .unwrap_or(1),
         })
+}
+
+fn line_number_at(contents: &str, offset: usize) -> usize {
+    let clamped = offset.min(contents.len());
+    contents.as_bytes()[..clamped]
+        .iter()
+        .filter(|&&byte| byte == b'\n')
+        .count()
+        + 1
 }
 
 fn config_error_message(line: usize) -> String {
@@ -334,16 +434,66 @@ enum IdleEffect {
     Hidden,
 }
 
+trait IdleTarget {
+    fn is_visible(&self) -> bool;
+    fn show(&self) -> bool;
+    fn hide(&self) -> bool;
+    fn set_opacity(&self, opacity: f64) -> bool;
+}
+
+struct WindowIdleTarget<'a>(&'a AppHandle);
+
+impl IdleTarget for WindowIdleTarget<'_> {
+    fn is_visible(&self) -> bool {
+        self.0
+            .get_webview_window(MAIN_WINDOW)
+            .and_then(|window| window.is_visible().ok())
+            .unwrap_or(false)
+    }
+
+    fn show(&self) -> bool {
+        let Some(window) = self.0.get_webview_window(MAIN_WINDOW) else {
+            return false;
+        };
+        if let Err(error) = window.show() {
+            tracing::warn!(%error, "failed to show idle window");
+            return false;
+        }
+        crate::tray::sync_visibility(self.0, true);
+        true
+    }
+
+    fn hide(&self) -> bool {
+        let Some(window) = self.0.get_webview_window(MAIN_WINDOW) else {
+            return false;
+        };
+        if let Err(error) = window.hide() {
+            tracing::warn!(%error, "failed to hide idle window");
+            return false;
+        }
+        crate::tray::sync_visibility(self.0, false);
+        true
+    }
+
+    fn set_opacity(&self, opacity: f64) -> bool {
+        let Some(window) = self.0.get_webview_window(MAIN_WINDOW) else {
+            return false;
+        };
+        set_window_opacity(&window, opacity)
+    }
+}
+
 fn start_idle_watcher(app: AppHandle, store: Store) {
     let mut player = store.subscribe();
     let mut config = app.state::<ConfigManager>().subscribe();
     tauri::async_runtime::spawn(async move {
-        run_idle_watcher(&app, &mut player, &mut config).await;
+        let target = WindowIdleTarget(&app);
+        run_idle_watcher(&target, &mut player, &mut config).await;
     });
 }
 
 async fn run_idle_watcher(
-    app: &AppHandle,
+    target: &impl IdleTarget,
     player: &mut watch::Receiver<ferric_core::model::PlayerState>,
     config: &mut watch::Receiver<Config>,
 ) {
@@ -351,10 +501,10 @@ async fn run_idle_watcher(
     let mut effect = IdleEffect::None;
 
     loop {
-        let playback = player.borrow().playback;
+        let playback = player.borrow_and_update().playback;
         if playback == Playback::Playing {
             idle_since = None;
-            restore_from_idle(app, &mut effect);
+            restore_from_idle(target, &mut effect);
             tokio::select! {
                 changed = player.changed() => if changed.is_err() { return },
                 changed = config.changed() => if changed.is_err() { return },
@@ -365,7 +515,8 @@ async fn run_idle_watcher(
         let since = *idle_since.get_or_insert_with(tokio::time::Instant::now);
         let deadline = since + IDLE_AFTER;
         if tokio::time::Instant::now() >= deadline {
-            apply_idle(app, &config.borrow().clone(), &mut effect);
+            let current_config = config.borrow_and_update().clone();
+            apply_idle(target, &current_config, &mut effect);
             tokio::select! {
                 changed = player.changed() => if changed.is_err() { return },
                 changed = config.changed() => if changed.is_err() { return },
@@ -380,49 +531,32 @@ async fn run_idle_watcher(
     }
 }
 
-fn apply_idle(app: &AppHandle, config: &Config, effect: &mut IdleEffect) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
-        return;
-    };
+fn apply_idle(target: &impl IdleTarget, config: &Config, effect: &mut IdleEffect) {
     if config.hide_when_idle {
         if *effect == IdleEffect::Faded {
-            set_window_opacity(&window, 1.0);
+            target.set_opacity(1.0);
         }
-        if window.is_visible().unwrap_or(false) {
-            if let Err(error) = window.hide() {
-                tracing::warn!(%error, "failed to hide idle window");
-                return;
-            }
-            crate::tray::sync_visibility(app, false);
+        if *effect != IdleEffect::Hidden && target.is_visible() && target.hide() {
             *effect = IdleEffect::Hidden;
         }
     } else {
-        if *effect == IdleEffect::Hidden {
-            if let Err(error) = window.show() {
-                tracing::warn!(%error, "failed to show idle window");
-                return;
-            }
-            crate::tray::sync_visibility(app, true);
+        if *effect == IdleEffect::Hidden && !target.is_visible() && !target.show() {
+            return;
         }
-        if set_window_opacity(&window, config.idle_opacity) {
+        if target.set_opacity(config.idle_opacity) {
             *effect = IdleEffect::Faded;
         }
     }
 }
 
-fn restore_from_idle(app: &AppHandle, effect: &mut IdleEffect) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
-        return;
-    };
+fn restore_from_idle(target: &impl IdleTarget, effect: &mut IdleEffect) {
     match *effect {
         IdleEffect::Faded => {
-            set_window_opacity(&window, 1.0);
+            target.set_opacity(1.0);
         }
         IdleEffect::Hidden => {
-            if let Err(error) = window.show() {
-                tracing::warn!(%error, "failed to restore idle window");
-            } else {
-                crate::tray::sync_visibility(app, true);
+            if !target.is_visible() {
+                target.show();
             }
         }
         IdleEffect::None => {}
@@ -470,7 +604,68 @@ fn set_window_opacity(_window: &WebviewWindow, _opacity: f64) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{config_error_message, parse, Config, Hotkeys};
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+
+    use ferric_core::{model::Playback, store::Store};
+    use tokio::sync::watch;
+
+    use super::{
+        config_error_message, parse, run_idle_watcher, update_start_with_windows_in_toml, Config,
+        Hotkeys, IdleTarget, DEFAULT_CONFIG_TOML, IDLE_AFTER,
+    };
+
+    #[derive(Clone)]
+    struct FakeWindow {
+        state: Arc<Mutex<FakeWindowState>>,
+    }
+
+    struct FakeWindowState {
+        visible: bool,
+        opacity: f64,
+    }
+
+    impl FakeWindow {
+        fn new() -> Self {
+            Self {
+                state: Arc::new(Mutex::new(FakeWindowState {
+                    visible: true,
+                    opacity: 1.0,
+                })),
+            }
+        }
+
+        fn visible(&self) -> bool {
+            self.state.lock().expect("window state lock").visible
+        }
+
+        fn opacity(&self) -> f64 {
+            self.state.lock().expect("window state lock").opacity
+        }
+    }
+
+    impl IdleTarget for FakeWindow {
+        fn is_visible(&self) -> bool {
+            self.visible()
+        }
+
+        fn show(&self) -> bool {
+            self.state.lock().expect("window state lock").visible = true;
+            true
+        }
+
+        fn hide(&self) -> bool {
+            self.state.lock().expect("window state lock").visible = false;
+            true
+        }
+
+        fn set_opacity(&self, opacity: f64) -> bool {
+            self.state.lock().expect("window state lock").opacity = opacity;
+            true
+        }
+    }
 
     #[test]
     fn defaults_match_the_documented_config() {
@@ -489,6 +684,10 @@ mod tests {
                     cycle_mode: "Ctrl+Alt+M".to_owned(),
                 },
             }
+        );
+        assert_eq!(
+            parse(DEFAULT_CONFIG_TOML).expect("default config template should parse"),
+            Config::default()
         );
     }
 
@@ -509,6 +708,14 @@ next = ""
         assert_eq!(parsed.idle_opacity, 0.4);
         assert_eq!(parsed.hotkeys.next, "");
         assert_eq!(parsed.hotkeys.play_pause, "Ctrl+Alt+Space");
+
+        let negative = parse("grain = -0.3\nidle_opacity = 2.5\n").expect("valid bounds");
+        assert_eq!(negative.grain, 0.0);
+        assert_eq!(negative.idle_opacity, 1.0);
+
+        let nan_values = parse("grain = nan\nidle_opacity = nan\n").expect("valid floats");
+        assert_eq!(nan_values.grain, 0.2);
+        assert_eq!(nan_values.idle_opacity, 0.4);
     }
 
     #[test]
@@ -526,5 +733,68 @@ idle_opacity = nope
             config_error_message(error.line),
             "config.toml has an error on line 3"
         );
+
+        let line_start_error =
+            parse("grain = 0.2\r\n\r\n= broken\r\n").expect_err("invalid TOML at line start");
+        assert_eq!(line_start_error.line, 3);
+    }
+
+    #[test]
+    fn updating_start_with_windows_preserves_comments() {
+        let updated = update_start_with_windows_in_toml(DEFAULT_CONFIG_TOML, true);
+        assert!(updated.contains("# Ferric preferences."));
+        assert!(updated.contains("# grain + dust overlay opacity, 0 to 0.5"));
+        let parsed = parse(&updated).expect("updated TOML parses");
+        assert!(parsed.start_with_windows);
+        assert_eq!(parsed.grain, 0.2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_watcher_fades_hides_and_restores_on_playback() {
+        let store = Store::new();
+        let (config_tx, mut config_rx) = watch::channel(Config::default());
+        let mut player_rx = store.subscribe();
+        let window = FakeWindow::new();
+        let watcher_window = window.clone();
+
+        let task = tokio::spawn(async move {
+            run_idle_watcher(&watcher_window, &mut player_rx, &mut config_rx).await;
+        });
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(IDLE_AFTER - Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(window.opacity(), 1.0);
+        assert!(window.visible());
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(window.opacity(), 0.4);
+        assert!(window.visible());
+
+        config_tx.send_replace(Config {
+            hide_when_idle: true,
+            ..Config::default()
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(window.opacity(), 1.0);
+        assert!(!window.visible());
+
+        store.update(|state| state.playback = Playback::Playing);
+        tokio::task::yield_now().await;
+        assert!(window.visible());
+        assert_eq!(window.opacity(), 1.0);
+
+        store.update(|state| state.playback = Playback::Paused);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(10)).await;
+        store.update(|state| state.playback = Playback::Playing);
+        tokio::task::yield_now().await;
+        tokio::time::advance(IDLE_AFTER).await;
+        tokio::task::yield_now().await;
+        assert!(window.visible());
+        assert_eq!(window.opacity(), 1.0);
+
+        task.abort();
     }
 }

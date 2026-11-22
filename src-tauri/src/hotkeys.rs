@@ -54,17 +54,20 @@ fn dispatch(app: AppHandle, action: Action) {
         Action::Previous => execute(app, Command::Previous),
         Action::ToggleWindow => crate::tray::toggle_window(&app),
         Action::CycleMode => {
-            let current = app.state::<Store>().get().mode;
-            let next = match current {
-                Mode::Full => Mode::Card,
-                Mode::Card => Mode::Strip,
-                Mode::Strip => Mode::Full,
-            };
+            let next = next_mode(app.state::<Store>().get().mode);
             if let Err(error) = crate::window::set_mode(&app, next) {
                 tracing::warn!(%error, "global hotkey could not change window mode");
                 crate::config::report_error(&app, error.to_string());
             }
         }
+    }
+}
+
+fn next_mode(mode: Mode) -> Mode {
+    match mode {
+        Mode::Full => Mode::Card,
+        Mode::Card => Mode::Strip,
+        Mode::Strip => Mode::Full,
     }
 }
 
@@ -78,17 +81,33 @@ fn execute(app: AppHandle, command: Command) {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use ferric_core::model::Mode;
+    use tauri_plugin_global_shortcut::Shortcut;
+
+    use super::next_mode;
+    use crate::config::Hotkeys;
 
     #[test]
     fn mode_cycle_visits_every_mode() {
-        let next = |mode| match mode {
-            Mode::Full => Mode::Card,
-            Mode::Card => Mode::Strip,
-            Mode::Strip => Mode::Full,
-        };
-        assert_eq!(next(Mode::Full), Mode::Card);
-        assert_eq!(next(Mode::Card), Mode::Strip);
-        assert_eq!(next(Mode::Strip), Mode::Full);
+        assert_eq!(next_mode(Mode::Full), Mode::Card);
+        assert_eq!(next_mode(Mode::Card), Mode::Strip);
+        assert_eq!(next_mode(Mode::Strip), Mode::Full);
+    }
+
+    #[test]
+    fn default_hotkeys_parse_as_valid_shortcuts() {
+        let defaults = Hotkeys::default();
+        for shortcut in [
+            &defaults.play_pause,
+            &defaults.next,
+            &defaults.previous,
+            &defaults.toggle_window,
+            &defaults.cycle_mode,
+        ] {
+            Shortcut::from_str(shortcut)
+                .unwrap_or_else(|error| panic!("default hotkey {shortcut:?} failed to parse: {error}"));
+        }
     }
 }
