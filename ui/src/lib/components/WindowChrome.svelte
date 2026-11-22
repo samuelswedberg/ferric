@@ -2,10 +2,11 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
   interface Props {
+    variant?: "full" | "card" | "strip";
     onModeSwitch?: () => void;
   }
 
-  let { onModeSwitch }: Props = $props();
+  let { variant = "full", onModeSwitch }: Props = $props();
 
   async function hideWindow(): Promise<void> {
     const isTauri = typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
@@ -15,7 +16,7 @@
   }
 </script>
 
-<div class="chrome">
+<div class="chrome" class:compact={variant !== "full"} class:strip={variant === "strip"}>
   <button type="button" class="chrome-btn" aria-label="Hide window" onclick={hideWindow}>
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
       <line x1="2" y1="2" x2="8" y2="8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
@@ -71,5 +72,16 @@
   .chrome-btn:hover {
     color: var(--ink);
     background: rgba(255, 255, 255, 0.08);
+  }
+
+  .chrome.compact {
+    left: auto;
+    right: 5px;
+    top: 3px;
+  }
+
+  .chrome.strip {
+    right: 4px;
+    top: 1px;
   }
 </style>

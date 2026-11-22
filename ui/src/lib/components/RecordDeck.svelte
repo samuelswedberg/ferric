@@ -4,6 +4,7 @@
   import { openSpotifyLink, type SpotifyLink } from "../spotifyLinks";
 
   interface Props {
+    variant?: "full" | "card" | "strip";
     playback: Playback;
     spotifyRunning: boolean;
     sleeveSrc: string | null;
@@ -19,6 +20,7 @@
   }
 
   let {
+    variant = "full",
     playback,
     spotifyRunning,
     sleeveSrc,
@@ -219,7 +221,7 @@
   );
 </script>
 
-<div class="deck">
+<div class="deck" class:card={variant === "card"} class:strip={variant === "strip"}>
   <div
     class="record-slide"
     class:slid-in={!isOut}
@@ -646,6 +648,106 @@
 
   .tonearm-arm.lifted {
     filter: drop-shadow(9px 13px 6px rgba(0, 0, 0, 0.45));
+  }
+
+  .deck.card {
+    height: 120px;
+  }
+
+  .deck.card .record-slide {
+    left: 54px;
+    top: 18px;
+    width: 86px;
+    height: 86px;
+  }
+
+  .deck.card .record-slide.slid-in {
+    transform: translateX(-35px);
+  }
+
+  .deck.card .record-hit,
+  .deck.card .record-spin {
+    width: 86px;
+    height: 86px;
+  }
+
+  .deck.card .record-label-fallback {
+    width: 29px;
+    height: 29px;
+  }
+
+  .deck.card .record-spindle {
+    width: 3px;
+    height: 3px;
+  }
+
+  .deck.card .sleeve {
+    left: 12px;
+    top: 12px;
+    width: 96px;
+    height: 96px;
+    box-shadow: 3px 4px 8px rgba(0, 0, 0, 0.7);
+  }
+
+  .deck.card .tonearm-layer {
+    transform: scale(0.42);
+    transform-origin: 0 0;
+  }
+
+  .deck.card .hover-scrim,
+  .deck.strip .hover-scrim {
+    display: none;
+  }
+
+  .deck.strip {
+    height: 36px;
+  }
+
+  .deck.strip .record-slide {
+    left: 20px;
+    top: 6px;
+    width: 24px;
+    height: 24px;
+  }
+
+  .deck.strip .record-slide.slid-in {
+    transform: translateX(-10px);
+  }
+
+  .deck.strip .record-hit,
+  .deck.strip .record-spin {
+    width: 24px;
+    height: 24px;
+  }
+
+  .deck.strip .record-spin {
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  }
+
+  .deck.strip .record-rim-light {
+    border-width: 0.75px;
+  }
+
+  .deck.strip .record-label-fallback {
+    width: 8px;
+    height: 8px;
+  }
+
+  .deck.strip .record-spindle {
+    width: 1px;
+    height: 1px;
+  }
+
+  .deck.strip .sleeve {
+    left: 6px;
+    top: 5px;
+    width: 26px;
+    height: 26px;
+    box-shadow: 1px 2px 3px rgba(0, 0, 0, 0.7);
+  }
+
+  .deck.strip .tonearm-layer {
+    display: none;
   }
 
   @keyframes crossfade-in {

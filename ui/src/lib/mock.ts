@@ -62,7 +62,16 @@ const themes: Theme[] = [
 const mockMode =
   typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("mock") : null;
 
-const queue = Array.from({ length: 12 }, (_, index) => tracks[(index + 1) % tracks.length]);
+const copperLight: Track = {
+  spotifyId: "mock-copper-light",
+  title: "Copper Light",
+  artists: ["Juniper Vale"],
+  album: "Afterglow",
+  durationMs: 227_000,
+  art: { kind: "url", url: sleeveEmberUrl },
+};
+const queueSeed = [tracks[1], tracks[2], copperLight, tracks[0]];
+const queue = Array.from({ length: 12 }, (_, index) => queueSeed[index % queueSeed.length]);
 const listeners = new Set<StateListener>();
 let trackIndex = 0;
 
@@ -82,6 +91,22 @@ function makeInitialState(): PlayerState {
   };
 
   switch (mockMode) {
+    case "card":
+      return { ...base, mode: "card" };
+    case "strip":
+      return { ...base, mode: "strip" };
+    case "volumeZero":
+      return { ...base, mode: "card", volumePct: 0 };
+    case "signedOut":
+      return {
+        ...base,
+        queue: null,
+        volumePct: null,
+        liked: null,
+        auth: { status: "signedOut" },
+      };
+    case "unknownVolume":
+      return { ...base, mode: "strip", volumePct: null };
     case "paused":
       return { ...base, playback: "paused" };
     case "stopped":
@@ -212,7 +237,9 @@ export const mockBackend = {
     publish();
   },
 
-  setQueueVisible(_visible: boolean): void {},
+  setQueueVisible(visible: boolean): void {
+    console.info(`[mock] set_queue_visible(${visible})`);
+  },
 
   openSpotify(): void {
     trackIndex = 0;

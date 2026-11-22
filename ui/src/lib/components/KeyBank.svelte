@@ -2,6 +2,7 @@
   import type { Playback } from "../bindings/Playback";
 
   interface Props {
+    variant?: "full" | "card" | "strip";
     playback: Playback;
     spotifyRunning: boolean;
     liked: boolean | null;
@@ -14,6 +15,7 @@
   }
 
   let {
+    variant = "full",
     playback,
     spotifyRunning,
     liked,
@@ -29,7 +31,13 @@
   const likeDisabled = $derived(!spotifyRunning || liked === null);
 </script>
 
-<div class="key-tray" role="group" aria-label="Playback controls">
+<div
+  class="key-tray"
+  class:card={variant === "card"}
+  class:strip={variant === "strip"}
+  role="group"
+  aria-label="Playback controls"
+>
   <button
     type="button"
     class="key"
@@ -176,5 +184,48 @@
   .heart-filled {
     color: var(--accent);
     transition: color 0.3s ease;
+  }
+
+  .key-tray.card {
+    left: 162px;
+    top: 74px;
+    width: 188px;
+    height: 30px;
+    padding: 3px;
+    border-radius: 5px;
+  }
+
+  .key-tray.card .key {
+    width: 44px;
+    height: 23px;
+  }
+
+  .key-tray.card .key:active:not(:disabled),
+  .key-tray.card .key.held {
+    height: 21px;
+  }
+
+  .key-tray.strip {
+    z-index: 5;
+    left: 224px;
+    top: 6px;
+    width: 128px;
+    height: 24px;
+    padding: 3px;
+    border-radius: 5px;
+  }
+
+  .key-tray.strip .key {
+    width: 29px;
+    height: 18.5px;
+  }
+
+  .key-tray.strip .key:active:not(:disabled),
+  .key-tray.strip .key.held {
+    height: 16.5px;
+  }
+
+  .key-tray.strip .key svg {
+    transform: scale(0.76);
   }
 </style>

@@ -17,9 +17,10 @@
     toastMessage: string | null;
     isHidden: boolean;
     reducedMotion: boolean;
+    onModeSwitch: () => void;
   }
 
-  let { state, positionMs, toastMessage, isHidden, reducedMotion }: Props = $props();
+  let { state, positionMs, toastMessage, isHidden, reducedMotion, onModeSwitch }: Props = $props();
 
   const spotifyRunning = $derived(state.spotifyRunning);
   const track = $derived(state.track);
@@ -51,14 +52,19 @@
   const trackTitle = $derived(spotifyRunning ? (track?.title ?? null) : null);
   const songUrl = $derived(spotifyRunning && track ? trackLink(track) : null);
   const albumUrl = $derived(spotifyRunning && track ? albumLink(track) : null);
+
+  function onDoubleClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) onModeSwitch();
+  }
 </script>
 
 <main
   class="plinth"
   data-tauri-drag-region
   style="background-image: url({plinthTextureUrl})"
+  ondblclick={onDoubleClick}
 >
-  <WindowChrome />
+  <WindowChrome {onModeSwitch} />
 
   <RecordDeck
     playback={state.playback}
@@ -113,7 +119,7 @@
     onSetVolume={(pct) => void playerStore.runCommand({ type: "setVolume", pct })}
   />
 
-  <QueueCard />
+  <QueueCard queue={state.queue} />
 
   <ErrorToast message={toastMessage} />
 

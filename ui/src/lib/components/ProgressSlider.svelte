@@ -1,13 +1,27 @@
 <script lang="ts">
   interface Props {
+    variant?: "full" | "card";
     positionMs: number;
     durationMs: number | null;
     spotifyRunning: boolean;
     isStopped: boolean;
+    displayRatio?: number | null;
+    volumeMode?: boolean;
+    reducedMotion?: boolean;
     onSeek: (positionMs: number) => void;
   }
 
-  let { positionMs, durationMs, spotifyRunning, isStopped, onSeek }: Props = $props();
+  let {
+    variant = "full",
+    positionMs,
+    durationMs,
+    spotifyRunning,
+    isStopped,
+    displayRatio = null,
+    volumeMode = false,
+    reducedMotion = false,
+    onSeek,
+  }: Props = $props();
 
   let trackEl: HTMLDivElement | undefined = $state();
   let dragging = $state(false);
@@ -19,9 +33,13 @@
       ? 0
       : Math.min(1, Math.max(0, positionMs / durationMs)),
   );
-  const ratio = $derived(dragging ? dragRatio : baseRatio);
-  const capLeftPx = $derived(ratio * 306);
-  const playedWidthPx = $derived(Math.max(0, Math.round(ratio * 318)));
+  const ratio = $derived(
+    dragging ? dragRatio : displayRatio === null ? baseRatio : Math.min(1, Math.max(0, displayRatio)),
+  );
+  const capLeftPx = $derived(ratio * (variant === "card" ? 174 : 306));
+  const playedWidthPx = $derived(
+    Math.max(0, Math.round(ratio * (variant === "card" ? 182 : 318))),
+  );
 
   function ratioFromClientX(clientX: number): number {
     if (!trackEl) return 0;
@@ -71,6 +89,9 @@
 
 <div
   class="slider"
+  class:card={variant === "card"}
+  class:volume={volumeMode}
+  class:no-motion={reducedMotion}
   class:disabled={!enabled}
   bind:this={trackEl}
   role="slider"
@@ -189,5 +210,55 @@
     width: 8px;
     height: 1px;
     background: rgba(0, 0, 0, 0.35);
+  }
+
+  .slider.card {
+    left: 162px;
+    top: 51px;
+    width: 184px;
+    height: 18px;
+  }
+
+  .slider.card .slot {
+    top: 6px;
+    width: 184px;
+    height: 4px;
+    border-radius: 2px;
+  }
+
+  .slider.card .played {
+    top: 1px;
+    height: 2px;
+  }
+
+  .slider.card .ticks {
+    display: none;
+  }
+
+  .slider.card .cap {
+    width: 10px;
+    height: 16px;
+    transition: transform 200ms ease;
+  }
+
+  .slider.card .ridge {
+    width: 6px;
+    gap: 1px;
+  }
+
+  .slider.volume .played {
+    background: var(--volume);
+  }
+
+  .slider .played {
+    transition: background-color 200ms ease;
+  }
+
+  .slider.no-motion .played {
+    transition: none;
+  }
+
+  .slider.no-motion .cap {
+    transition: none;
   }
 </style>
