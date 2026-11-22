@@ -138,7 +138,7 @@ jobs:
         run: gh release edit "$env:TAG" --prerelease --repo "${{ github.repository }}"
 
       - name: Build NSIS and MSI installers
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           FERRIC_UPDATER_PUBKEY: ${{ secrets.FERRIC_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
