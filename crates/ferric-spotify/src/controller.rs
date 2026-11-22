@@ -102,7 +102,9 @@ impl Controller for SpotifyController {
                 if *pct > 100 {
                     return Err(ControlError::Other("volume must be 0..=100".into()));
                 }
+                self.auth.note_volume_set();
                 self.player_call(api.as_ref(), || api.volume(*pct)).await?;
+                self.auth.note_volume_set();
                 self.store.update(|state| state.volume_pct = Some(*pct));
             }
             Command::SetLiked { liked } => {

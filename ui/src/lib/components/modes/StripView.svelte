@@ -208,7 +208,8 @@
     display: block;
     height: 100%;
     background: var(--accent);
-    transition: width 200ms ease, background-color 200ms ease;
+    /* Steps with the progress (no width glide); colour still eases for the volume readout. */
+    transition: background-color 200ms ease;
   }
 
   .progress-line.volume span {

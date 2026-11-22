@@ -98,8 +98,16 @@ pub async fn run(store: Store, auth: Arc<Authenticator>, mut visible: watch::Rec
         let api = client.as_ref().map(|api| api as &dyn SpotifyApi);
         let mut retries = 0;
         loop {
-            if let Some(delay) =
-                poll_cycle(&store, api, signed_in, is_visible, &mut poll_state).await
+            let volume_hold = auth.volume_recently_set();
+            if let Some(delay) = poll_cycle(
+                &store,
+                api,
+                signed_in,
+                is_visible,
+                volume_hold,
+                &mut poll_state,
+            )
+            .await
             {
                 tokio::time::sleep(delay).await;
                 break;
@@ -178,6 +186,7 @@ async fn poll_cycle(
     api: Option<&dyn SpotifyApi>,
     signed_in: bool,
     visible: bool,
+    volume_hold: bool,
     state: &mut PollState,
 ) -> Option<Duration> {
     if !signed_in || api.is_none() {
@@ -202,7 +211,7 @@ async fn poll_cycle(
             Ok(playback) => {
                 state.backoff.success();
                 state.session_active = playback.is_some();
-                matched_track_id = apply_playback(store, playback);
+                matched_track_id = apply_playback(store, playback, volume_hold);
                 state.last_match_missed = matched_track_id.is_none() && store.get().track.is_some();
             }
             Err(error) => {
@@ -291,7 +300,12 @@ fn rate_limit_delay(state: &mut PollState, error: &Error) -> Option<Duration> {
     }
 }
 
-fn apply_playback(store: &Store, playback: Option<api::Playback>) -> Option<String> {
+/// `volume_hold`: the user just set the volume, and this poll may predate it.
+fn apply_playback(
+    store: &Store,
+    playback: Option<api::Playback>,
+    volume_hold: bool,
+) -> Option<String> {
     // No active Spotify session (e.g. paused for a while): keep the last known volume
     // and queue so the knob and list don't go blank; Windows' media session still
     // supplies the track and position.
@@ -304,7 +318,9 @@ fn apply_playback(store: &Store, playback: Option<api::Playback>) -> Option<Stri
         .unwrap_or(u64::MAX);
     let mut matched_id = None;
     store.update(|player| {
-        player.volume_pct = playback.volume_pct;
+        if !volume_hold {
+            player.volume_pct = playback.volume_pct;
+        }
         player.position = playback.position_ms.map(|ms| Position {
             ms,
             sampled_at_unix_ms,
@@ -504,8 +520,8 @@ mod tests {
         let store = Store::new();
         let api = CountingApi::default();
         let mut state = PollState::default();
-        poll_cycle(&store, Some(&api), true, false, &mut state).await;
-        poll_cycle(&store, Some(&api), false, true, &mut state).await;
+        poll_cycle(&store, Some(&api), true, false, false, &mut state).await;
+        poll_cycle(&store, Some(&api), false, true, false, &mut state).await;
         assert_eq!(api.count(), 0);
         assert_eq!(store.get().queue, None);
     }
@@ -527,7 +543,7 @@ mod tests {
             liked: true,
         };
         let mut state = PollState::default();
-        poll_cycle(&store, Some(&api), true, true, &mut state).await;
+        poll_cycle(&store, Some(&api), true, true, false, &mut state).await;
 
         let snapshot = store.get();
         assert_eq!(api.count(), 3);
@@ -548,7 +564,7 @@ mod tests {
             state.volume_pct = Some(50);
             state.queue = Some(vec![local_track("Next")]);
         });
-        assert_eq!(apply_playback(&store, None), None);
+        assert_eq!(apply_playback(&store, None, false), None);
         let snapshot = store.get();
         assert_eq!(snapshot.volume_pct, Some(50));
         assert_eq!(snapshot.queue.map(|queue| queue.len()), Some(1));
@@ -598,8 +614,26 @@ mod tests {
                 position_ms: Some(250),
                 track: Some(remote_track("Song")),
             }),
+            false,
         );
         assert_eq!(store.get().playback, PlaybackState::Playing);
         assert_eq!(store.get().volume_pct, Some(55));
+    }
+
+    #[test]
+    fn volume_hold_keeps_a_just_set_volume() {
+        let store = Store::new();
+        store.update(|state| state.volume_pct = Some(80));
+        apply_playback(
+            &store,
+            Some(api::Playback {
+                is_playing: true,
+                volume_pct: Some(40),
+                position_ms: Some(0),
+                track: None,
+            }),
+            true,
+        );
+        assert_eq!(store.get().volume_pct, Some(80));
     }
 }

@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     net::{SocketAddr, TcpListener},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
     },
     time::Duration,
@@ -160,6 +160,8 @@ pub struct Authenticator {
     client: RwLock<Option<AuthCodePkceSpotify>>,
     busy: AtomicBool,
     runtime: AuthRuntime,
+    /// When the user last set the volume (unix ms); see `volume_recently_set`.
+    volume_set_at_ms: AtomicU64,
 }
 
 impl Authenticator {
@@ -174,7 +176,21 @@ impl Authenticator {
             client: RwLock::new(None),
             busy: AtomicBool::new(false),
             runtime,
+            volume_set_at_ms: AtomicU64::new(0),
         }
+    }
+
+    /// Records that the user just set the volume (called before and after the request).
+    pub(crate) fn note_volume_set(&self) {
+        self.volume_set_at_ms
+            .store(now_unix_ms(), Ordering::Relaxed);
+    }
+
+    /// True for 2 s after the user set the volume: a poll then may still report the old
+    /// value and must not move the knob back.
+    pub(crate) fn volume_recently_set(&self) -> bool {
+        const HOLD_MS: u64 = 2_000;
+        now_unix_ms().saturating_sub(self.volume_set_at_ms.load(Ordering::Relaxed)) < HOLD_MS
     }
 
     pub async fn set_client_id(&self, id: String) -> Result<(), AuthError> {
@@ -568,6 +584,15 @@ async fn parse_spotify_error(error: ClientError) -> ParsedSpotifyError {
             auth_error: AuthError::Spotify(other.to_string()),
         },
     }
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]
