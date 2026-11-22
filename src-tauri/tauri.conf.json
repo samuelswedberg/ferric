@@ -31,7 +31,11 @@
       "tooltip": "Ferric"
     },
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPCACHE/art/**"]
+      }
     }
   },
   "bundle": {

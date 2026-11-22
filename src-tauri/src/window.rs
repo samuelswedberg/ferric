@@ -129,6 +129,15 @@ fn register_window_events(window: WebviewWindow) {
             let pending_generation = Arc::clone(&move_generation);
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(MOVE_SETTLE_TIME).await;
+                // While the user still holds the button, Windows' move loop owns the
+                // position and would undo a snap; and releasing without moving sends no
+                // further Moved event. So wait for the release, then snap once.
+                while primary_button_down() {
+                    if pending_generation.load(Ordering::Relaxed) != generation {
+                        return;
+                    }
+                    tokio::time::sleep(MOVE_SETTLE_TIME).await;
+                }
                 if pending_generation.load(Ordering::Relaxed) == generation {
                     if let Err(error) = snap_to_work_area(&pending_window) {
                         tracing::warn!(%error, "failed to snap the main window");
@@ -138,6 +147,19 @@ fn register_window_events(window: WebviewWindow) {
         }
         _ => {}
     });
+}
+
+#[cfg(windows)]
+fn primary_button_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    // SAFETY: GetAsyncKeyState only reads the global key state.
+    let state = unsafe { GetAsyncKeyState(i32::from(VK_LBUTTON.0)) };
+    state < 0
+}
+
+#[cfg(not(windows))]
+fn primary_button_down() -> bool {
+    false
 }
 
 fn snap_to_work_area(window: &WebviewWindow) -> tauri::Result<()> {
