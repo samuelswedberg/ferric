@@ -22,6 +22,7 @@ ferric-spotify = { path = "../crates/ferric-spotify" }
 ferric-theme = { path = "../crates/ferric-theme" }
 notify = "8"
 reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls"] }
+serde.workspace = true
 tauri = { workspace = true, features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"

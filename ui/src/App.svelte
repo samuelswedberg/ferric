@@ -3,6 +3,7 @@
   import type { TransitionConfig } from "svelte/transition";
   import "./lib/styles/tokens.css";
   import type { Rgb } from "./lib/bindings/Rgb";
+  import ErrorToast from "./lib/components/ErrorToast.svelte";
   import FullView from "./lib/components/FullView.svelte";
   import CardView from "./lib/components/modes/CardView.svelte";
   import StripView from "./lib/components/modes/StripView.svelte";
@@ -155,7 +156,6 @@
           <FullView
             state={playerStore.playerState}
             positionMs={playerStore.displayPositionMs}
-            toastMessage={playerStore.toastMessage}
             isHidden={playerStore.isHidden}
             reducedMotion={playerStore.reducedMotion}
             onModeSwitch={cycleMode}
@@ -181,12 +181,14 @@
         {/if}
       </div>
     {/key}
+    <ErrorToast message={playerStore.toastMessage} />
     <OnboardingPanel playerState={playerStore.playerState} />
   {/if}
 </div>
 
 <style>
   .app-shell {
+    position: relative;
     width: 100vw;
     height: 100vh;
     display: flex;

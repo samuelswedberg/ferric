@@ -7,6 +7,7 @@ import recordEmberUrl from "./mock-assets/record-ember.png";
 import sleeveEmberUrl from "./mock-assets/sleeve-ember.png";
 
 type StateListener = (state: PlayerState) => void;
+type ConfigListener = (config: { grain: number; errors: string[] }) => void;
 
 const tracks: Track[] = [
   {
@@ -73,6 +74,7 @@ const copperLight: Track = {
 const queueSeed = [tracks[1], tracks[2], copperLight, tracks[0]];
 const queue = Array.from({ length: 12 }, (_, index) => queueSeed[index % queueSeed.length]);
 const listeners = new Set<StateListener>();
+const configListeners = new Set<ConfigListener>();
 let trackIndex = 0;
 
 function makeInitialState(): PlayerState {
@@ -191,6 +193,10 @@ if (mockMode === "cycle") {
 }
 
 export const mockBackend = {
+  getConfig(): { grain: number; errors: string[] } {
+    return { grain: 0.2, errors: [] };
+  },
+
   getState(): PlayerState {
     return cloneState();
   },
@@ -328,5 +334,10 @@ export const mockBackend = {
   subscribe(listener: StateListener): () => void {
     listeners.add(listener);
     return () => listeners.delete(listener);
+  },
+
+  subscribeConfig(listener: ConfigListener): () => void {
+    configListeners.add(listener);
+    return () => configListeners.delete(listener);
   },
 };

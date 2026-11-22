@@ -197,7 +197,11 @@ pub fn setup(app: &mut tauri::App) -> anyhow::Result<()> {
         }
     };
 
-    app.manage(ConfigManager::new(path.clone(), config.clone(), initial_error));
+    app.manage(ConfigManager::new(
+        path.clone(),
+        config.clone(),
+        initial_error,
+    ));
     crate::hotkeys::apply(app.handle(), &config.hotkeys);
     crate::autostart::apply(app.handle(), config.start_with_windows);
     start_watcher(app.handle().clone(), path)?;
@@ -211,10 +215,12 @@ pub async fn get_config(config: State<'_, ConfigManager>) -> Result<ConfigPayloa
 }
 
 pub fn set_start_with_windows(app: &AppHandle, enabled: bool) -> Result<(), String> {
-    let manager = app.state::<ConfigManager>();
-    let mut config = manager.current();
+    let (mut config, path) = {
+        let manager = app.state::<ConfigManager>();
+        (manager.current(), manager.path().to_owned())
+    };
     config.start_with_windows = enabled;
-    let contents = fs::read_to_string(manager.path())
+    let contents = fs::read_to_string(&path)
         .ok()
         .map(|existing| update_start_with_windows_in_toml(&existing, enabled))
         .filter(|updated| {
@@ -224,8 +230,7 @@ pub fn set_start_with_windows(app: &AppHandle, enabled: bool) -> Result<(), Stri
         })
         .map(Ok)
         .unwrap_or_else(|| toml::to_string_pretty(&config).map_err(|error| error.to_string()))?;
-    fs::write(manager.path(), contents).map_err(|error| error.to_string())?;
-    drop(manager);
+    fs::write(path, contents).map_err(|error| error.to_string())?;
     apply(app, config);
     Ok(())
 }
@@ -289,11 +294,9 @@ pub fn report_error(app: &AppHandle, message: impl Into<String>) {
 
 fn start_watcher(app: AppHandle, path: PathBuf) -> anyhow::Result<()> {
     let (sender, receiver) = mpsc::channel();
-    let mut watcher = notify::recommended_watcher(
-        move |event: notify::Result<notify::Event>| {
-            let _ = sender.send(event);
-        },
-    )?;
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        let _ = sender.send(event);
+    })?;
     let directory = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("config path has no parent"))?;
@@ -304,7 +307,7 @@ fn start_watcher(app: AppHandle, path: PathBuf) -> anyhow::Result<()> {
         .spawn(move || {
             let _watcher = watcher;
             while let Ok(event) = receiver.recv() {
-                if !relevant_event(event, &path, &app) {
+                if !relevant_event(&event, &path, &app) {
                     continue;
                 }
 
@@ -312,7 +315,7 @@ fn start_watcher(app: AppHandle, path: PathBuf) -> anyhow::Result<()> {
                 loop {
                     let timeout = deadline.saturating_duration_since(Instant::now());
                     match receiver.recv_timeout(timeout) {
-                        Ok(event) if relevant_event(event, &path, &app) => {
+                        Ok(event) if relevant_event(&event, &path, &app) => {
                             deadline = Instant::now() + RELOAD_DEBOUNCE;
                         }
                         Ok(_) => {}
@@ -326,19 +329,12 @@ fn start_watcher(app: AppHandle, path: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn relevant_event(
-    event: notify::Result<notify::Event>,
-    path: &Path,
-    app: &AppHandle,
-) -> bool {
+fn relevant_event(event: &notify::Result<notify::Event>, path: &Path, app: &AppHandle) -> bool {
     match event {
         Ok(event) => {
             matches!(
                 event.kind,
-                EventKind::Create(_)
-                    | EventKind::Modify(_)
-                    | EventKind::Remove(_)
-                    | EventKind::Any
+                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) | EventKind::Any
             ) && event
                 .paths
                 .iter()

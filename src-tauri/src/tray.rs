@@ -39,7 +39,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let card = mode_item(app, "mode-card", "Card", current_mode == Mode::Card)?;
     let strip = mode_item(app, "mode-strip", "Strip", current_mode == Mode::Strip)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let open_config = MenuItem::with_id(app, "open-config", "Open config file", true, None::<&str>)?;
+    let open_config =
+        MenuItem::with_id(app, "open-config", "Open config file", true, None::<&str>)?;
     let start_with_windows = CheckMenuItem::with_id(
         app,
         "start-with-windows",
@@ -158,11 +159,12 @@ fn open_config(app: &AppHandle) {
 }
 
 fn toggle_start_with_windows(app: &AppHandle) {
-    let Some(config) = app.try_state::<crate::config::ConfigManager>() else {
+    let Some(current) = app
+        .try_state::<crate::config::ConfigManager>()
+        .map(|config| config.current().start_with_windows)
+    else {
         return;
     };
-    let current = config.current().start_with_windows;
-    drop(config);
     if let Err(error) = crate::config::set_start_with_windows(app, !current) {
         tracing::warn!(%error, "failed to toggle start-with-Windows from tray");
         crate::config::report_error(app, format!("Could not update Start with Windows: {error}"));
@@ -185,23 +187,8 @@ fn sign_out(app: &AppHandle) {
 }
 
 pub(crate) fn toggle_window(app: &AppHandle) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
-        return;
-    };
-
-    let visible = window.is_visible().unwrap_or(false);
-    let result = if visible {
-        window.hide()
-    } else {
-        window
-            .show()
-            .and_then(|_| window.unminimize())
-            .and_then(|_| window.set_focus())
-    };
-    if let Err(error) = result {
+    if let Err(error) = crate::window::toggle_window(app) {
         tracing::warn!(%error, "failed to toggle the main window");
-    } else {
-        sync_visibility(app, !visible);
     }
 }
 

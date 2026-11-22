@@ -105,7 +105,11 @@
       void playerStore.runCommand({ type: "setLiked", liked: !(state.liked ?? false) })}
     onOpenSpotify={() => void playerStore.runOpenSpotify()}
   />
-  <div class="grain-overlay" style="background-image: url({grainTextureUrl})" aria-hidden="true"></div>
+  <div
+    class="grain-overlay"
+    style="background-image: url({grainTextureUrl}); opacity: {playerStore.grainOpacity}"
+    aria-hidden="true"
+  ></div>
 </main>
 
 <style>
@@ -165,7 +169,6 @@
     z-index: 40;
     background-size: cover;
     background-position: center;
-    opacity: 0.2;
     pointer-events: none;
   }
 </style>
