@@ -166,7 +166,7 @@ jobs:
 
       - name: Sign installers with SignPath
         if: steps.signing.outputs.provider == 'signpath'
-        uses: signpath/github-action-submit-signing-request@v1.2
+        uses: signpath/github-action-submit-signing-request@v3.1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
