@@ -24,8 +24,9 @@ const RELOAD_DEBOUNCE: Duration = Duration::from_millis(300);
 const DEFAULT_CONFIG_TOML: &str = r#"# Ferric preferences. Changes are applied without restarting.
 grain = 0.2              # grain + dust overlay opacity, 0 to 0.5
 start_with_windows = false
-hide_when_idle = false   # hide the window after 30 s of nothing playing
-idle_opacity = 0.4
+fade_when_idle = true    # dim the window after 30 s of nothing playing
+idle_opacity = 0.4       # how far it dims (Full; Card and Strip stop at 0.65)
+hide_when_idle = false   # hide the window instead of dimming it
 
 [hotkeys]                # set any to "" to disable
 play_pause = "Ctrl+Alt+Space"
@@ -40,6 +41,7 @@ cycle_mode = "Ctrl+Alt+M"
 pub struct Config {
     pub grain: f64,
     pub start_with_windows: bool,
+    pub fade_when_idle: bool,
     pub hide_when_idle: bool,
     pub idle_opacity: f64,
     pub hotkeys: Hotkeys,
@@ -50,6 +52,7 @@ impl Default for Config {
         Self {
             grain: 0.2,
             start_with_windows: false,
+            fade_when_idle: true,
             hide_when_idle: false,
             idle_opacity: 0.4,
             hotkeys: Hotkeys::default(),
@@ -205,6 +208,7 @@ pub fn setup(app: &mut tauri::App) -> anyhow::Result<()> {
     ));
     crate::hotkeys::apply(app.handle(), &config.hotkeys);
     crate::autostart::apply(app.handle(), config.start_with_windows);
+    crate::tray::sync_fade_when_idle(app.handle(), config.fade_when_idle);
     start_watcher(app.handle().clone(), path)?;
     start_idle_watcher(app.handle().clone(), app.state::<Store>().inner().clone());
     Ok(())
@@ -216,17 +220,36 @@ pub async fn get_config(config: State<'_, ConfigManager>) -> Result<ConfigPayloa
 }
 
 pub fn set_start_with_windows(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    set_bool(app, "start_with_windows", enabled, |config| {
+        &mut config.start_with_windows
+    })
+}
+
+pub fn set_fade_when_idle(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    set_bool(app, "fade_when_idle", enabled, |config| {
+        &mut config.fade_when_idle
+    })
+}
+
+/// Writes one top-level boolean to config.toml, keeping the user's other lines and
+/// comments, then applies the new config.
+fn set_bool(
+    app: &AppHandle,
+    key: &str,
+    enabled: bool,
+    field: fn(&mut Config) -> &mut bool,
+) -> Result<(), String> {
     let (mut config, path) = {
         let manager = app.state::<ConfigManager>();
         (manager.current(), manager.path().to_owned())
     };
-    config.start_with_windows = enabled;
+    *field(&mut config) = enabled;
     let contents = fs::read_to_string(&path)
         .ok()
-        .map(|existing| update_start_with_windows_in_toml(&existing, enabled))
+        .map(|existing| update_bool_in_toml(&existing, key, enabled))
         .filter(|updated| {
             parse(updated)
-                .map(|parsed| parsed.start_with_windows == enabled)
+                .map(|mut parsed| *field(&mut parsed) == enabled)
                 .unwrap_or(false)
         })
         .map(Ok)
@@ -236,7 +259,7 @@ pub fn set_start_with_windows(app: &AppHandle, enabled: bool) -> Result<(), Stri
     Ok(())
 }
 
-fn update_start_with_windows_in_toml(existing: &str, enabled: bool) -> String {
+fn update_bool_in_toml(existing: &str, key: &str, enabled: bool) -> String {
     let line_ending = if existing.contains("\r\n") {
         "\r\n"
     } else {
@@ -252,14 +275,14 @@ fn update_start_with_windows_in_toml(existing: &str, enabled: bool) -> String {
             first_section = Some(index);
             break;
         }
-        if let Some(rest) = trimmed.strip_prefix("start_with_windows") {
+        if let Some(rest) = trimmed.strip_prefix(key) {
             let after_key = rest.trim_start();
             if let Some(after_eq) = after_key.strip_prefix('=') {
                 let comment = after_eq
                     .find('#')
                     .map(|idx| format!(" {}", after_eq[idx..].trim_end()))
                     .unwrap_or_default();
-                *line = format!("start_with_windows = {enabled}{comment}");
+                *line = format!("{key} = {enabled}{comment}");
                 replaced = true;
                 break;
             }
@@ -267,7 +290,7 @@ fn update_start_with_windows_in_toml(existing: &str, enabled: bool) -> String {
     }
 
     if !replaced {
-        let entry = format!("start_with_windows = {enabled}");
+        let entry = format!("{key} = {enabled}");
         match first_section {
             Some(index) => lines.insert(index, entry),
             None => lines.push(entry),
@@ -392,6 +415,9 @@ fn apply(app: &AppHandle, config: Config) {
     }
     if previous.start_with_windows != config.start_with_windows {
         crate::autostart::apply(app, config.start_with_windows);
+    }
+    if previous.fade_when_idle != config.fade_when_idle {
+        crate::tray::sync_fade_when_idle(app, config.fade_when_idle);
     }
 }
 
@@ -545,6 +571,13 @@ fn apply_idle(target: &impl IdleTarget, config: &Config, effect: &mut IdleEffect
         if *effect == IdleEffect::Hidden && !target.is_visible() && !target.show() {
             return;
         }
+        if !config.fade_when_idle {
+            if *effect == IdleEffect::Faded {
+                target.set_opacity(1.0);
+            }
+            *effect = IdleEffect::None;
+            return;
+        }
         if target.set_opacity(config.idle_opacity) {
             *effect = IdleEffect::Faded;
         }
@@ -577,8 +610,8 @@ mod tests {
     use tokio::sync::watch;
 
     use super::{
-        config_error_message, parse, run_idle_watcher, update_start_with_windows_in_toml, Config,
-        Hotkeys, IdleTarget, DEFAULT_CONFIG_TOML, IDLE_AFTER,
+        config_error_message, parse, run_idle_watcher, update_bool_in_toml, Config, Hotkeys,
+        IdleTarget, DEFAULT_CONFIG_TOML, IDLE_AFTER,
     };
 
     #[derive(Clone)]
@@ -638,6 +671,7 @@ mod tests {
             Config {
                 grain: 0.2,
                 start_with_windows: false,
+                fade_when_idle: true,
                 hide_when_idle: false,
                 idle_opacity: 0.4,
                 hotkeys: Hotkeys {
@@ -705,7 +739,7 @@ idle_opacity = nope
 
     #[test]
     fn updating_start_with_windows_preserves_comments() {
-        let updated = update_start_with_windows_in_toml(DEFAULT_CONFIG_TOML, true);
+        let updated = update_bool_in_toml(DEFAULT_CONFIG_TOML, "start_with_windows", true);
         assert!(updated.contains("# Ferric preferences."));
         assert!(updated.contains("# grain + dust overlay opacity, 0 to 0.5"));
         let parsed = parse(&updated).expect("updated TOML parses");
@@ -760,5 +794,42 @@ idle_opacity = nope
         assert_eq!(window.opacity(), 1.0);
 
         task.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fade_when_idle_off_keeps_the_window_bright_and_undoes_a_fade() {
+        let store = Store::new();
+        let (config_tx, mut config_rx) = watch::channel(Config::default());
+        let mut player_rx = store.subscribe();
+        let window = FakeWindow::new();
+        let watcher_window = window.clone();
+        let task = tokio::spawn(async move {
+            run_idle_watcher(&watcher_window, &mut player_rx, &mut config_rx).await;
+        });
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(IDLE_AFTER).await;
+        tokio::task::yield_now().await;
+        assert_eq!(window.opacity(), 0.4);
+
+        config_tx.send_replace(Config {
+            fade_when_idle: false,
+            ..Config::default()
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(window.opacity(), 1.0);
+        assert!(window.visible());
+
+        task.abort();
+    }
+
+    #[test]
+    fn default_config_fades_and_toggle_rewrites_only_that_line() {
+        assert!(parse(DEFAULT_CONFIG_TOML).unwrap().fade_when_idle);
+        let updated = update_bool_in_toml(DEFAULT_CONFIG_TOML, "fade_when_idle", false);
+        let parsed = parse(&updated).unwrap();
+        assert!(!parsed.fade_when_idle);
+        assert_eq!(parsed.idle_opacity, 0.4);
+        assert!(updated.contains("fade_when_idle = false # dim the window"));
     }
 }
