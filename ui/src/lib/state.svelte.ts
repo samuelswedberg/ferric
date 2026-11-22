@@ -2,7 +2,16 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Art } from "./bindings/Art";
 import type { Command } from "./bindings/Command";
 import type { PlayerState } from "./bindings/PlayerState";
-import { getState, openSpotify, sendCommand, subscribeState } from "./ipc";
+import {
+  getConfig,
+  getState,
+  openSpotify,
+  sendCommand,
+  subscribeConfig,
+  subscribeError,
+  subscribeState,
+  type ConfigPayload,
+} from "./ipc";
 
 const TOAST_DURATION_MS = 3000;
 
@@ -26,6 +35,7 @@ class PlayerStore {
   displayPositionMs = $state<number>(0);
   isHidden = $state<boolean>(false);
   reducedMotion = $state<boolean>(false);
+  grainOpacity = $state<number>(0.2);
 
   private rafId: number | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -86,6 +96,13 @@ class PlayerStore {
     }, TOAST_DURATION_MS);
   }
 
+  private applyConfig(config: ConfigPayload): void {
+    this.grainOpacity = Number.isFinite(config.grain)
+      ? Math.min(0.5, Math.max(0, config.grain))
+      : 0.2;
+    for (const error of config.errors) this.showToast(error);
+  }
+
   async runCommand(cmd: Command): Promise<void> {
     try {
       await sendCommand(cmd);
@@ -107,6 +124,9 @@ class PlayerStore {
   init(): () => void {
     let active = true;
     let unlisten: (() => void) | undefined;
+    let unlistenConfig: (() => void) | undefined;
+    let unlistenError: (() => void) | undefined;
+    let configRevision = 0;
 
     const applyState = (next: PlayerState): void => {
       if (!active) return;
@@ -139,6 +159,15 @@ class PlayerStore {
         }
       });
 
+    const configRevisionAtLoad = configRevision;
+    void getConfig()
+      .then((config) => {
+        if (active && configRevision === configRevisionAtLoad) this.applyConfig(config);
+      })
+      .catch((cause: unknown) => {
+        if (active) this.showToast(cause instanceof Error ? cause.message : String(cause));
+      });
+
     void subscribeState(applyState)
       .then((stop) => {
         if (active) unlisten = stop;
@@ -150,9 +179,36 @@ class PlayerStore {
         }
       });
 
+    void subscribeConfig((config) => {
+      if (active) {
+        configRevision += 1;
+        this.applyConfig(config);
+      }
+    })
+      .then((stop) => {
+        if (active) unlistenConfig = stop;
+        else stop();
+      })
+      .catch((cause: unknown) => {
+        if (active) this.showToast(cause instanceof Error ? cause.message : String(cause));
+      });
+
+    void subscribeError((message) => {
+      if (active) this.showToast(message);
+    })
+      .then((stop) => {
+        if (active) unlistenError = stop;
+        else stop();
+      })
+      .catch((cause: unknown) => {
+        if (active) this.showToast(cause instanceof Error ? cause.message : String(cause));
+      });
+
     return () => {
       active = false;
       unlisten?.();
+      unlistenConfig?.();
+      unlistenError?.();
       this.stopLoop();
       if (this.toastTimer !== null) {
         clearTimeout(this.toastTimer);

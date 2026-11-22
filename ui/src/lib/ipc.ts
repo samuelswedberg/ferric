@@ -6,10 +6,21 @@ import type { PlayerState } from "./bindings/PlayerState";
 import { mockBackend } from "./mock";
 
 const STATE_EVENT = "ferric://state";
+const CONFIG_EVENT = "ferric://config";
+const ERROR_EVENT = "ferric://error";
 const isTauri = typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
+
+export interface ConfigPayload {
+  grain: number;
+  errors: string[];
+}
 
 export async function getState(): Promise<PlayerState> {
   return isTauri ? invoke<PlayerState>("get_state") : mockBackend.getState();
+}
+
+export async function getConfig(): Promise<ConfigPayload> {
+  return isTauri ? invoke<ConfigPayload>("get_config") : mockBackend.getConfig();
 }
 
 export async function sendCommand(cmd: Command): Promise<void> {
@@ -50,6 +61,18 @@ export async function authSignOut(): Promise<void> {
 export async function subscribeState(listener: (state: PlayerState) => void): Promise<UnlistenFn> {
   if (!isTauri) return mockBackend.subscribe(listener);
   return listen<PlayerState>(STATE_EVENT, (event) => listener(event.payload));
+}
+
+export async function subscribeConfig(
+  listener: (config: ConfigPayload) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri) return mockBackend.subscribeConfig(listener);
+  return listen<ConfigPayload>(CONFIG_EVENT, (event) => listener(event.payload));
+}
+
+export async function subscribeError(listener: (message: string) => void): Promise<UnlistenFn> {
+  if (!isTauri) return () => undefined;
+  return listen<string>(ERROR_EVENT, (event) => listener(event.payload));
 }
 
 /** Used by browser tooling and tests to exercise the same state event shape as Tauri. */

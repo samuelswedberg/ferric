@@ -53,6 +53,25 @@ pub fn set_mode(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
     Ok(())
 }
 
+pub fn toggle_window(app: &AppHandle) -> tauri::Result<()> {
+    let window = main_window(app)?;
+    let visible = window.is_visible().unwrap_or(false);
+    if visible {
+        window.hide()?;
+    } else {
+        window.show()?;
+        window.unminimize()?;
+        window.set_focus()?;
+    }
+    crate::tray::sync_visibility(app, !visible);
+    Ok(())
+}
+
+pub fn cycle_mode(app: &AppHandle) -> tauri::Result<()> {
+    let next = next_mode(app.state::<Store>().get().mode);
+    set_mode(app, next)
+}
+
 #[tauri::command(rename = "set_mode")]
 pub async fn set_mode_command(app: AppHandle, mode: Mode) -> Result<(), String> {
     set_mode(&app, mode).map_err(|error| error.to_string())
@@ -68,6 +87,14 @@ fn mode_height(mode: Mode) -> f64 {
         Mode::Full => 520.0,
         Mode::Card => 120.0,
         Mode::Strip => 36.0,
+    }
+}
+
+fn next_mode(mode: Mode) -> Mode {
+    match mode {
+        Mode::Full => Mode::Card,
+        Mode::Card => Mode::Strip,
+        Mode::Strip => Mode::Full,
     }
 }
 
@@ -229,6 +256,13 @@ fn center_in_work_area(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mode_cycle_visits_every_mode() {
+        assert_eq!(next_mode(Mode::Full), Mode::Card);
+        assert_eq!(next_mode(Mode::Card), Mode::Strip);
+        assert_eq!(next_mode(Mode::Strip), Mode::Full);
+    }
 
     fn area(x: i32, y: i32, width: u32, height: u32) -> tauri::PhysicalRect<i32, u32> {
         tauri::PhysicalRect {

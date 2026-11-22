@@ -2,7 +2,6 @@
   import type { PlayerState } from "../bindings/PlayerState";
   import { albumLink, trackLink } from "../spotifyLinks";
   import { formatTime, playerStore, resolveArtSrc } from "../state.svelte";
-  import ErrorToast from "./ErrorToast.svelte";
   import KeyBank from "./KeyBank.svelte";
   import ProgressSlider from "./ProgressSlider.svelte";
   import QueueCard from "./QueueCard.svelte";
@@ -14,13 +13,12 @@
   interface Props {
     state: PlayerState;
     positionMs: number;
-    toastMessage: string | null;
     isHidden: boolean;
     reducedMotion: boolean;
     onModeSwitch: () => void;
   }
 
-  let { state, positionMs, toastMessage, isHidden, reducedMotion, onModeSwitch }: Props = $props();
+  let { state, positionMs, isHidden, reducedMotion, onModeSwitch }: Props = $props();
 
   const spotifyRunning = $derived(state.spotifyRunning);
   const track = $derived(state.track);
@@ -121,9 +119,11 @@
 
   <QueueCard queue={state.queue} />
 
-  <ErrorToast message={toastMessage} />
-
-  <div class="grain-overlay" style="background-image: url({grainTextureUrl})" aria-hidden="true"></div>
+  <div
+    class="grain-overlay"
+    style="background-image: url({grainTextureUrl}); opacity: {playerStore.grainOpacity}"
+    aria-hidden="true"
+  ></div>
 </main>
 
 <style>
@@ -192,7 +192,6 @@
     z-index: 40;
     background-size: cover;
     background-position: center;
-    opacity: 0.2;
     pointer-events: none;
   }
 </style>

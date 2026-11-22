@@ -18,7 +18,7 @@
     left: 24px;
     right: 24px;
     bottom: 8px;
-    z-index: 30;
+    z-index: 50;
     padding: 5px 12px;
     background: linear-gradient(180deg, #e5d8b2 0%, #dcd0a8 100%);
     color: #2f2a26;

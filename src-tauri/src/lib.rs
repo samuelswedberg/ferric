@@ -1,6 +1,9 @@
 mod app;
 mod auth;
+mod autostart;
 mod commands;
+mod config;
+mod hotkeys;
 mod router;
 mod theming;
 mod tray;
@@ -8,6 +11,8 @@ mod window;
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_window_state::Builder::new()
@@ -23,6 +28,7 @@ pub fn run() {
             app::setup(app)?;
             window::setup(app.handle())?;
             tray::build(app.handle())?;
+            config::setup(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -33,6 +39,7 @@ pub fn run() {
             commands::open_spotify,
             commands::send_command,
             commands::set_queue_visible,
+            config::get_config,
             window::set_mode_command
         ])
         .run(tauri::generate_context!())

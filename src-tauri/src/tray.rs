@@ -6,6 +6,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconEvent},
     AppHandle, Manager,
 };
+use tauri_plugin_opener::OpenerExt;
 
 const MAIN_WINDOW: &str = "main";
 const TRAY_ID: &str = "main";
@@ -16,6 +17,7 @@ struct TrayMenuState {
     full: CheckMenuItem<tauri::Wry>,
     card: CheckMenuItem<tauri::Wry>,
     strip: CheckMenuItem<tauri::Wry>,
+    start_with_windows: CheckMenuItem<tauri::Wry>,
 }
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
@@ -37,6 +39,17 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let card = mode_item(app, "mode-card", "Card", current_mode == Mode::Card)?;
     let strip = mode_item(app, "mode-strip", "Strip", current_mode == Mode::Strip)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let open_config =
+        MenuItem::with_id(app, "open-config", "Open config file", true, None::<&str>)?;
+    let start_with_windows = CheckMenuItem::with_id(
+        app,
+        "start-with-windows",
+        "Start with Windows",
+        true,
+        false,
+        None::<&str>,
+    )?;
+    let config_separator = PredefinedMenuItem::separator(app)?;
     let sign_out = MenuItem::with_id(app, "sign-out", "Sign out", true, None::<&str>)?;
     let account_separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -50,6 +63,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &card,
             &strip,
             &separator,
+            &open_config,
+            &start_with_windows,
+            &config_separator,
             &sign_out,
             &account_separator,
             &quit,
@@ -62,6 +78,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         full,
         card,
         strip,
+        start_with_windows,
     });
 
     let tray = app
@@ -100,6 +117,12 @@ pub(crate) fn sync_visibility(app: &AppHandle, visible: bool) {
     }
 }
 
+pub(crate) fn sync_autostart(app: &AppHandle, enabled: bool) {
+    if let Some(menu) = app.try_state::<TrayMenuState>() {
+        let _ = menu.start_with_windows.set_checked(enabled);
+    }
+}
+
 fn mode_item(
     app: &AppHandle,
     id: &'static str,
@@ -116,9 +139,36 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         "mode-full" => change_mode(app, Mode::Full),
         "mode-card" => change_mode(app, Mode::Card),
         "mode-strip" => change_mode(app, Mode::Strip),
+        "open-config" => open_config(app),
+        "start-with-windows" => toggle_start_with_windows(app),
         "sign-out" => sign_out(app),
         "quit" => app.exit(0),
         _ => {}
+    }
+}
+
+fn open_config(app: &AppHandle) {
+    let Some(config) = app.try_state::<crate::config::ConfigManager>() else {
+        return;
+    };
+    let path = config.path().to_string_lossy().into_owned();
+    if let Err(error) = app.opener().open_path(path, None::<&str>) {
+        tracing::warn!(%error, "failed to open config.toml");
+        crate::config::report_error(app, format!("Could not open config.toml: {error}"));
+    }
+}
+
+fn toggle_start_with_windows(app: &AppHandle) {
+    let Some(current) = app
+        .try_state::<crate::config::ConfigManager>()
+        .map(|config| config.current().start_with_windows)
+    else {
+        return;
+    };
+    if let Err(error) = crate::config::set_start_with_windows(app, !current) {
+        tracing::warn!(%error, "failed to toggle start-with-Windows from tray");
+        crate::config::report_error(app, format!("Could not update Start with Windows: {error}"));
+        sync_autostart(app, current);
     }
 }
 
@@ -136,24 +186,9 @@ fn sign_out(app: &AppHandle) {
     });
 }
 
-fn toggle_window(app: &AppHandle) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
-        return;
-    };
-
-    let visible = window.is_visible().unwrap_or(false);
-    let result = if visible {
-        window.hide()
-    } else {
-        window
-            .show()
-            .and_then(|_| window.unminimize())
-            .and_then(|_| window.set_focus())
-    };
-    if let Err(error) = result {
+pub(crate) fn toggle_window(app: &AppHandle) {
+    if let Err(error) = crate::window::toggle_window(app) {
         tracing::warn!(%error, "failed to toggle the main window");
-    } else {
-        sync_visibility(app, !visible);
     }
 }
 
