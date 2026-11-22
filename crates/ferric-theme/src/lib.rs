@@ -15,7 +15,8 @@ use image::imageops::FilterType;
 
 use crate::noise::seed_from_key;
 
-const CACHE_VERSION: &str = "2";
+// Bump when the rendered sleeve/record look changes, so cached art is redrawn.
+const CACHE_VERSION: &str = "3";
 const SLEEVE_SALT: u64 = 0x534c_4545_5645_0001;
 const RECORD_SALT: u64 = 0x5245_434f_5244_0002;
 
