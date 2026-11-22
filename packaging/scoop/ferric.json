@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "description": "A tiny, album-art-themed miniplayer for Spotify on Windows.",
+  "homepage": "https://github.com/samuelswedberg/ferric",
+  "license": "MIT OR Apache-2.0",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/samuelswedberg/ferric/releases/download/v1.0.0/Ferric_1.0.0_x64-setup.exe#/installer.exe",
+      "hash": "REPLACE_WITH_RELEASE_SHA256"
+    }
+  },
+  "installer": {
+    "script": [
+      "Start-Process -Wait \"$dir\\installer.exe\" -ArgumentList @('/S', \"/D=$dir\")",
+      "Remove-Item \"$dir\\installer.exe\""
+    ]
+  },
+  "uninstaller": {
+    "script": "Start-Process -Wait \"$dir\\uninstall.exe\" -ArgumentList '/S'"
+  },
+  "shortcuts": [
+    [
+      "Ferric.exe",
+      "Ferric"
+    ]
+  ],
+  "checkver": {
+    "github": "https://github.com/samuelswedberg/ferric"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/samuelswedberg/ferric/releases/download/v$version/Ferric_$version_x64-setup.exe#/installer.exe"
+      }
+    }
+  }
+}

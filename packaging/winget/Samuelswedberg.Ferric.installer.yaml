@@ -1,0 +1,11 @@
+# Replace VERSION, MSI_URL, MSI_SHA256, and PRODUCT_CODE before validation or submission.
+PackageIdentifier: Samuelswedberg.Ferric
+PackageVersion: VERSION
+InstallerType: wix
+Installers:
+  - Architecture: x64
+    InstallerUrl: MSI_URL
+    InstallerSha256: MSI_SHA256
+    ProductCode: PRODUCT_CODE
+ManifestType: installer
+ManifestVersion: 1.9.0

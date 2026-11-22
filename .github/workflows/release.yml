@@ -28,8 +28,17 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+      id-token: write
     env:
       TAG: ${{ inputs.tag }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+      SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,21 +57,66 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix ui
 
-      - name: Configure updater artifacts
+      - name: Select signing provider
+        id: signing
         shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          $signed = -not [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)
-          $createUpdaterArtifacts = $signed.ToString().ToLowerInvariant()
-          $config = "{`"bundle`":{`"createUpdaterArtifacts`":$createUpdaterArtifacts}}"
-          Set-Content -Path src-tauri/tauri.release.conf.json -Value $config
-          if (-not $signed) {
-            Write-Warning "TAURI_SIGNING_PRIVATE_KEY is not configured; building unsigned installers without updater artifacts."
+          $missingSignPath = @(
+            $env:SIGNPATH_API_TOKEN,
+            $env:SIGNPATH_ARTIFACT_CONFIGURATION_SLUG,
+            $env:SIGNPATH_ORGANIZATION_ID,
+            $env:SIGNPATH_PROJECT_SLUG,
+            $env:SIGNPATH_SIGNING_POLICY_SLUG
+          ) | Where-Object { [string]::IsNullOrWhiteSpace($_) }
+          $missingAzure = @(
+            $env:AZURE_CLIENT_ID,
+            $env:AZURE_CLIENT_SECRET,
+            $env:AZURE_TENANT_ID,
+            '${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}',
+            '${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}',
+            '${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}'
+          ) | Where-Object { [string]::IsNullOrWhiteSpace($_) }
+          if ($missingSignPath.Count -eq 0) {
+            "provider=signpath" >> $env:GITHUB_OUTPUT
+            if ($missingAzure.Count -eq 0) {
+              Write-Warning "Both signing providers are configured; SignPath takes precedence."
+            }
+          } elseif ($missingAzure.Count -eq 0) {
+            "provider=azure" >> $env:GITHUB_OUTPUT
+          } else {
+            "provider=unsigned" >> $env:GITHUB_OUTPUT
+            Write-Warning "No complete code-signing configuration is present; installers will be unsigned."
           }
 
+      - name: Configure updater artifacts
+        id: updater
+        shell: pwsh
+        env:
+          FERRIC_UPDATER_PUBKEY: ${{ secrets.FERRIC_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $missingUpdater = @(
+            $env:FERRIC_UPDATER_PUBKEY,
+            $env:TAURI_SIGNING_PRIVATE_KEY,
+            $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          ) | Where-Object { [string]::IsNullOrWhiteSpace($_) }
+          $enabled = $missingUpdater.Count -eq 0
+          "enabled=$($enabled.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          $config = @{ bundle = @{ createUpdaterArtifacts = $enabled } }
+          if ($enabled) {
+            $config.plugins = @{
+              updater = @{
+                endpoints = @("https://github.com/samuelswedberg/ferric/releases/latest/download/latest.json")
+                pubkey = $env:FERRIC_UPDATER_PUBKEY
+              }
+            }
+          } else {
+            Write-Warning "Updater keys are incomplete; building without updater artifacts or update checks."
+          }
+          $config | ConvertTo-Json -Depth 5 | Set-Content src-tauri/tauri.release.conf.json
+
       - name: Find GitHub release
-        id: release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,7 +129,6 @@ jobs:
             Start-Sleep -Seconds 5
           }
           if (-not $releaseId) { throw "Release for $env:TAG was not found." }
-          "release_id=$releaseId" >> $env:GITHUB_OUTPUT
 
       - name: Mark pre-1.0 release as prerelease
         if: startsWith(inputs.tag, 'v0.')
@@ -84,14 +137,99 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release edit "$env:TAG" --prerelease --repo "${{ github.repository }}"
 
-      - name: Build and upload NSIS and MSI installers
+      - name: Build NSIS and MSI installers
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          FERRIC_UPDATER_PUBKEY: ${{ secrets.FERRIC_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
-          releaseId: ${{ steps.release.outputs.release_id }}
-          tagName: ${{ inputs.tag }}
           args: --bundles nsis,msi --config src-tauri/tauri.release.conf.json
+
+      - name: Stage installers for SignPath
+        if: steps.signing.outputs.provider == 'signpath'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path signpath-input | Out-Null
+          Copy-Item target/release/bundle/nsis/*-setup.exe signpath-input/
+          Copy-Item target/release/bundle/msi/*.msi signpath-input/
+
+      - name: Upload SignPath input
+        if: steps.signing.outputs.provider == 'signpath'
+        id: signpath-input
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-input-${{ inputs.tag }}
+          path: signpath-input
+          if-no-files-found: error
+
+      - name: Sign installers with SignPath
+        if: steps.signing.outputs.provider == 'signpath'
+        uses: signpath/github-action-submit-signing-request@v1.2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.signpath-input.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-installers
+
+      - name: Sign installers with Azure Trusted Signing
+        if: steps.signing.outputs.provider == 'azure'
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+          files-folder: target/release/bundle
+          files-folder-filter: exe,msi
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Create updater manifest
+        if: steps.updater.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem target/release/bundle -Recurse -File -Filter '*.nsis.zip' | Select-Object -First 1
+          if (-not $archive) { throw "The signed NSIS updater archive was not generated." }
+          $signaturePath = "$($archive.FullName).sig"
+          if (-not (Test-Path $signaturePath)) { throw "The updater archive signature was not generated." }
+          $version = $env:TAG.TrimStart('v')
+          $assetName = [Uri]::EscapeDataString($archive.Name)
+          $manifest = @{
+            version = $version
+            notes = "Ferric $version"
+            pub_date = [DateTime]::UtcNow.ToString('o')
+            platforms = @{
+              'windows-x86_64' = @{
+                signature = (Get-Content $signaturePath -Raw).Trim()
+                url = "https://github.com/${{ github.repository }}/releases/download/$env:TAG/$assetName"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content target/release/bundle/latest.json
+
+      - name: Upload release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installers = if ('${{ steps.signing.outputs.provider }}' -eq 'signpath') {
+            Get-ChildItem signed-installers -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' }
+          } else {
+            Get-ChildItem target/release/bundle -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' }
+          }
+          $updater = Get-ChildItem target/release/bundle -Recurse -File | Where-Object {
+            $_.Name -eq 'latest.json' -or $_.Extension -in '.sig', '.zip'
+          }
+          $assets = @($installers) + @($updater)
+          if ($assets.Count -lt 2) { throw "Expected NSIS and MSI installers were not found." }
+          gh release upload "$env:TAG" @($assets.FullName) --clobber --repo "${{ github.repository }}"
