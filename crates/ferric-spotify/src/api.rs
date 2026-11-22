@@ -20,6 +20,7 @@ pub(crate) struct Track {
     pub title: String,
     pub artists: Vec<String>,
     pub album: Option<String>,
+    pub album_id: Option<String>,
     pub duration_ms: u64,
     pub images: Vec<Image>,
 }
@@ -197,6 +198,7 @@ fn map_item(item: &PlayableItem) -> Option<Track> {
             .map(|artist| artist.name.clone())
             .collect(),
         album: (!track.album.name.is_empty()).then(|| track.album.name.clone()),
+        album_id: track.album.id.as_ref().map(|id| id.id().to_owned()),
         duration_ms: u64::try_from(track.duration.num_milliseconds()).unwrap_or(0),
         images: track
             .album

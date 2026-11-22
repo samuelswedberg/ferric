@@ -215,6 +215,7 @@ mod tests {
                 title: "Song".into(),
                 artists: vec!["Artist".into()],
                 album: None,
+                album_id: None,
                 duration_ms: None,
                 art: None,
             })

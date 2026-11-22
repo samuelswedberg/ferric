@@ -42,6 +42,8 @@ pub struct Track {
     pub title: String,
     pub artists: Vec<String>,
     pub album: Option<String>,
+    /// Spotify album id, from the Web API poller; None when only SMTC knows the track.
+    pub album_id: Option<String>,
     #[ts(type = "number | null")]
     pub duration_ms: Option<u64>,
     pub art: Option<Art>,
@@ -241,6 +243,7 @@ mod tests {
             title: "Title".into(),
             artists: vec!["Artist".into()],
             album: Some("Album".into()),
+            album_id: Some("album-id".into()),
             duration_ms: Some(123_000),
             art: None,
         };
@@ -251,6 +254,7 @@ mod tests {
                 "title": "Title",
                 "artists": ["Artist"],
                 "album": "Album",
+                "albumId": "album-id",
                 "durationMs": 123000,
                 "art": null
             }),

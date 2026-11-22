@@ -26,6 +26,7 @@ pub struct Track {
     pub title: String,
     pub artists: Vec<String>,
     pub album: Option<String>,
+    pub album_id: Option<String>,        // Spotify album id; None when only SMTC knows the track
     pub duration_ms: Option<u64>,
     pub art: Option<Art>,
 }

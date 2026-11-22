@@ -317,6 +317,7 @@ fn map_track(track: api::Track) -> Track {
         title: track.title,
         artists: track.artists,
         album: track.album,
+        album_id: track.album_id,
         duration_ms: Some(track.duration_ms),
         art,
     }
@@ -421,6 +422,7 @@ mod tests {
             title: title.into(),
             artists: vec!["Artist".into()],
             album: None,
+            album_id: None,
             duration_ms: None,
             art: None,
         }
@@ -431,6 +433,7 @@ mod tests {
             title: title.into(),
             artists: vec![" artist ".into()],
             album: Some("Album".into()),
+            album_id: Some("album1".into()),
             duration_ms: 1000,
             images: vec![api::Image {
                 url: "https://i.scdn.co/640.jpg".into(),
