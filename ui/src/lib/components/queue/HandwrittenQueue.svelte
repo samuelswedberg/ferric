@@ -16,6 +16,9 @@
   let menuY = $state(0);
 
   const visibleTracks = $derived(queue?.slice(0, 3) ?? []);
+  // A missing queue only means "signed out" when the user really is; signed in, Spotify
+  // hasn't reported it yet (e.g. paused long enough that its playback session ended).
+  const signedIn = $derived(playerStore.playerState?.auth.status === "signedIn");
 
   function duration(track: Track): string {
     return track.durationMs === null ? "--:--" : formatTime(track.durationMs);
@@ -59,7 +62,9 @@
 
 <div class="handwritten-queue" bind:this={queueEl}>
   <h2>side one</h2>
-  {#if queue === null}
+  {#if queue === null && signedIn}
+    <p class="empty">play something to load the queue</p>
+  {:else if queue === null}
     <div class="signed-out">
       <span>sign in to see what's next</span>
       <!-- T10 wires this button to the sign-in flow. -->
