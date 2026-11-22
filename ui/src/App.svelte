@@ -143,9 +143,10 @@
 
 <div
   class="app-shell"
-  style="--accent: {accentCss}; --on-accent: {onAccentCss}; transition: {playerStore.reducedMotion
+  class:idle={playerStore.idleOpacity < 1}
+  style="--accent: {accentCss}; --on-accent: {onAccentCss}; --idle-opacity: {playerStore.idleOpacity}; transition: {playerStore.reducedMotion
     ? 'none'
-    : 'color 300ms ease'};"
+    : 'color 300ms ease, opacity 600ms ease'};"
 >
   {#if playerStore.playerState}
     {#key playerStore.playerState.mode}
@@ -189,6 +190,15 @@
 </div>
 
 <style>
+  .app-shell.idle {
+    opacity: var(--idle-opacity);
+  }
+
+  /* Faded when idle, but fully visible again while the pointer is over it. */
+  .app-shell.idle:hover {
+    opacity: 1;
+  }
+
   .app-shell {
     position: relative;
     width: 100vw;

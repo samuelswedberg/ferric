@@ -11,11 +11,12 @@ use std::{
 use ferric_core::{model::Playback, store::Store};
 use notify::{EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::watch;
 
 const CONFIG_EVENT: &str = "ferric://config";
 const ERROR_EVENT: &str = "ferric://error";
+const IDLE_OPACITY_EVENT: &str = "ferric://idle-opacity";
 const MAIN_WINDOW: &str = "main";
 const IDLE_AFTER: Duration = Duration::from_secs(30);
 const RELOAD_DEBOUNCE: Duration = Duration::from_millis(300);
@@ -471,11 +472,16 @@ impl IdleTarget for WindowIdleTarget<'_> {
         true
     }
 
+    /// The UI fades its own content (the window is transparent). Win32 layered-window
+    /// alpha is not used: on a transparent WebView2 window it can blank the window.
     fn set_opacity(&self, opacity: f64) -> bool {
-        let Some(window) = self.0.get_webview_window(MAIN_WINDOW) else {
-            return false;
-        };
-        set_window_opacity(&window, opacity)
+        match self.0.emit(IDLE_OPACITY_EVENT, opacity.clamp(0.0, 1.0)) {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(%error, "failed to emit idle opacity");
+                false
+            }
+        }
     }
 }
 
@@ -558,44 +564,6 @@ fn restore_from_idle(target: &impl IdleTarget, effect: &mut IdleEffect) {
         IdleEffect::None => {}
     }
     *effect = IdleEffect::None;
-}
-
-#[cfg(windows)]
-fn set_window_opacity(window: &WebviewWindow, opacity: f64) -> bool {
-    use windows::Win32::{
-        Foundation::COLORREF,
-        UI::WindowsAndMessaging::{
-            GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, GWL_EXSTYLE,
-            LWA_ALPHA, WS_EX_LAYERED,
-        },
-    };
-
-    let hwnd = match window.hwnd() {
-        Ok(hwnd) => hwnd,
-        Err(error) => {
-            tracing::warn!(%error, "failed to get window handle for idle opacity");
-            return false;
-        }
-    };
-    let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
-    // SAFETY: hwnd belongs to the live Tauri window. These calls only update its
-    // extended style and uniform alpha value.
-    unsafe {
-        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED.0 as isize);
-        match SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA) {
-            Ok(()) => true,
-            Err(error) => {
-                tracing::warn!(%error, "failed to change idle window opacity");
-                false
-            }
-        }
-    }
-}
-
-#[cfg(not(windows))]
-fn set_window_opacity(_window: &WebviewWindow, _opacity: f64) -> bool {
-    true
 }
 
 #[cfg(test)]

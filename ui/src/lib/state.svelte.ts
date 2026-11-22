@@ -9,6 +9,7 @@ import {
   sendCommand,
   subscribeConfig,
   subscribeError,
+  subscribeIdleOpacity,
   subscribeState,
   type ConfigPayload,
 } from "./ipc";
@@ -36,6 +37,7 @@ class PlayerStore {
   isHidden = $state<boolean>(false);
   reducedMotion = $state<boolean>(false);
   grainOpacity = $state<number>(0.2);
+  idleOpacity = $state<number>(1);
 
   private rafId: number | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -126,6 +128,7 @@ class PlayerStore {
     let unlisten: (() => void) | undefined;
     let unlistenConfig: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
+    let unlistenIdle: (() => void) | undefined;
     let configRevision = 0;
 
     const applyState = (next: PlayerState): void => {
@@ -204,9 +207,21 @@ class PlayerStore {
         if (active) this.showToast(cause instanceof Error ? cause.message : String(cause));
       });
 
+    void subscribeIdleOpacity((opacity) => {
+      if (active) this.idleOpacity = Number.isFinite(opacity) ? Math.min(1, Math.max(0, opacity)) : 1;
+    })
+      .then((stop) => {
+        if (active) unlistenIdle = stop;
+        else stop();
+      })
+      .catch((cause: unknown) => {
+        if (active) this.showToast(cause instanceof Error ? cause.message : String(cause));
+      });
+
     return () => {
       active = false;
       unlisten?.();
+      unlistenIdle?.();
       unlistenConfig?.();
       unlistenError?.();
       this.stopLoop();
