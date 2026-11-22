@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { Playback } from "../bindings/Playback";
+  import { openSpotifyLink, type SpotifyLink } from "../spotifyLinks";
 
   interface Props {
     playback: Playback;
@@ -10,8 +11,8 @@
     recordSrc: string | null;
     albumName: string | null;
     trackTitle: string | null;
-    albumUrl: string | null;
-    songUrl: string | null;
+    albumUrl: SpotifyLink | null;
+    songUrl: SpotifyLink | null;
     progress: number;
     isHidden: boolean;
     reducedMotion: boolean;
@@ -32,9 +33,9 @@
     reducedMotion,
   }: Props = $props();
 
-  function openExternal(url: string | null): void {
-    if (!url) return;
-    window.open(url, "_blank", "noopener,noreferrer");
+  function openExternal(link: SpotifyLink | null): void {
+    if (!link) return;
+    void openSpotifyLink(link);
   }
 
   let spinningEl: HTMLDivElement | undefined = $state();

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PlayerState } from "../bindings/PlayerState";
+  import { albumLink, trackLink } from "../spotifyLinks";
   import { formatTime, playerStore, resolveArtSrc } from "../state.svelte";
   import ErrorToast from "./ErrorToast.svelte";
   import KeyBank from "./KeyBank.svelte";
@@ -48,18 +49,8 @@
 
   const albumName = $derived(spotifyRunning ? (track?.album ?? track?.title ?? null) : null);
   const trackTitle = $derived(spotifyRunning ? (track?.title ?? null) : null);
-  const songUrl = $derived.by(() => {
-    if (!spotifyRunning || !track) return null;
-    if (track.spotifyId) {
-      return `https://open.spotify.com/track/${encodeURIComponent(track.spotifyId)}`;
-    }
-    return `https://open.spotify.com/search/${encodeURIComponent(`${track.title} ${track.artists.join(" ")}`)}`;
-  });
-  const albumUrl = $derived.by(() => {
-    if (!spotifyRunning || !track) return null;
-    const query = `${track.album ?? track.title} ${track.artists[0] ?? ""}`.trim();
-    return `https://open.spotify.com/search/${encodeURIComponent(query)}/albums`;
-  });
+  const songUrl = $derived(spotifyRunning && track ? trackLink(track) : null);
+  const albumUrl = $derived(spotifyRunning && track ? albumLink(track) : null);
 </script>
 
 <main
