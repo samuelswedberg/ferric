@@ -200,7 +200,7 @@
   .control-fade {
     position: absolute;
     z-index: 3;
-    left: 192px;
+    left: 154px;
     right: 0;
     top: 0;
     bottom: 3px;

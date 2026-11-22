@@ -16,14 +16,8 @@
   }
 </script>
 
+<!-- Same place and order in every mode: top-right, mode switch then hide (X last). -->
 <div class="chrome" class:compact={variant !== "full"} class:strip={variant === "strip"}>
-  <button type="button" class="chrome-btn" aria-label="Hide window" onclick={hideWindow}>
-    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-      <line x1="2" y1="2" x2="8" y2="8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
-      <line x1="8" y1="2" x2="2" y2="8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
-    </svg>
-  </button>
-
   <button
     type="button"
     class="chrome-btn"
@@ -35,13 +29,21 @@
       <rect x="1.5" y="5.6" width="7" height="2.4" rx="0.6" fill="currentColor" opacity="0.6" />
     </svg>
   </button>
+
+  <button type="button" class="chrome-btn" aria-label="Hide window" onclick={hideWindow}>
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+      <line x1="2" y1="2" x2="8" y2="8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
+      <line x1="8" y1="2" x2="2" y2="8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
+    </svg>
+  </button>
 </div>
 
 <style>
   .chrome {
     position: absolute;
-    left: 10px;
-    top: 8px;
+    /* Full: just left of the tonearm pivot, clear of the sleeve. */
+    right: 42px;
+    top: 6px;
     z-index: 20;
     display: flex;
     align-items: center;
@@ -75,13 +77,13 @@
   }
 
   .chrome.compact {
-    left: auto;
     right: 5px;
     top: 3px;
   }
 
+  /* Strip: vertically centred in the 36 px bar, right of the key tray. */
   .chrome.strip {
     right: 4px;
-    top: 1px;
+    top: 9px;
   }
 </style>

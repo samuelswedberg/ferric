@@ -207,7 +207,8 @@
 
   .key-tray.strip {
     z-index: 5;
-    left: 224px;
+    /* Leaves 40 px on the right for the window buttons. */
+    left: 186px;
     top: 6px;
     width: 128px;
     height: 24px;
