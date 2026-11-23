@@ -295,6 +295,7 @@ mod tests {
                 spotify_id: None,
                 title: path.to_owned(),
                 artists: vec!["Artist".to_owned()],
+                artist_id: None,
                 album: None,
                 album_id: None,
                 duration_ms: None,

@@ -14,6 +14,7 @@ const tracks: Track[] = [
     spotifyId: "mock-ember-season",
     title: "Ember Season",
     artists: ["Low Hollow"],
+    artistId: "mock-artist-low-hollow",
     album: "Ember Season",
     albumId: null,
     durationMs: 221_000,
@@ -23,6 +24,7 @@ const tracks: Track[] = [
     spotifyId: "mock-glass-harbor",
     title: "Glass Harbor",
     artists: ["Maren Sol"],
+    artistId: "mock-artist-maren-sol",
     album: "Low Tide",
     albumId: null,
     durationMs: 201_000,
@@ -32,6 +34,7 @@ const tracks: Track[] = [
     spotifyId: "mock-northbound",
     title: "Northbound",
     artists: ["The Cedar Line"],
+    artistId: "mock-artist-cedar-line",
     album: "Milepost 9",
     albumId: null,
     durationMs: 187_000,
@@ -70,6 +73,7 @@ const copperLight: Track = {
   spotifyId: "mock-copper-light",
   title: "Copper Light",
   artists: ["Juniper Vale"],
+  artistId: "mock-artist-juniper-vale",
   album: "Afterglow",
   albumId: null,
   durationMs: 227_000,
@@ -90,6 +94,8 @@ function makeInitialState(): PlayerState {
     position: { ms: 84_000, sampledAtUnixMs: now },
     volumePct: 72,
     liked: true,
+    shuffle: true,
+    repeat: "off",
     queue,
     auth: { status: "signedIn", displayName: "Ferric Listener", premium: true },
     theme: themes[0],
@@ -139,6 +145,8 @@ function makeInitialState(): PlayerState {
         queue: null,
         volumePct: null,
         liked: null,
+        shuffle: null,
+        repeat: null,
         auth: { status: "signedOut" },
       };
     case "unknownVolume":
@@ -156,6 +164,8 @@ function makeInitialState(): PlayerState {
         position: null,
         volumePct: null,
         liked: null,
+        shuffle: null,
+        repeat: null,
         theme: null,
       };
     default:
@@ -261,6 +271,9 @@ export const mockBackend = {
       case "setLiked":
         state = { ...state, liked: command.liked };
         break;
+      case "setPlaybackMode":
+        state = { ...state, shuffle: command.shuffle, repeat: command.repeat };
+        break;
       case "jumpTo":
         state = {
           ...state,
@@ -291,6 +304,8 @@ export const mockBackend = {
       position: { ms: 0, sampledAtUnixMs: Date.now() },
       volumePct: 72,
       liked: true,
+      shuffle: true,
+      repeat: "off",
       theme: themes[0],
     };
     publish();
@@ -324,6 +339,8 @@ export const mockBackend = {
       ...state,
       queue,
       liked: true,
+      shuffle: true,
+      repeat: "off",
       volumePct: 72,
       auth: { status: "signedIn", displayName: "Ferric Listener", premium: true },
     };
@@ -331,7 +348,15 @@ export const mockBackend = {
   },
 
   signOut(): void {
-    state = { ...state, auth: { status: "signedOut" }, queue: null, liked: null, volumePct: null };
+    state = {
+      ...state,
+      auth: { status: "signedOut" },
+      queue: null,
+      liked: null,
+      shuffle: null,
+      repeat: null,
+      volumePct: null,
+    };
     publish();
   },
 

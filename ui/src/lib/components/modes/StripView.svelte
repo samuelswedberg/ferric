@@ -1,7 +1,7 @@
 <script lang="ts">
   import { windowDrag } from "../../windowDrag";
   import type { PlayerState } from "../../bindings/PlayerState";
-  import { albumLink, trackLink } from "../../spotifyLinks";
+  import { artistLink, openSpotifyLink, trackLink, type SpotifyLink } from "../../spotifyLinks";
   import { formatTime, playerStore, resolveArtSrc } from "../../state.svelte";
   import KeyBank from "../KeyBank.svelte";
   import RecordDeck from "../RecordDeck.svelte";
@@ -53,12 +53,13 @@
   const sleeveSrc = $derived(resolveArtSrc(playerState.theme?.sleeve));
   const fallbackArtSrc = $derived(resolveArtSrc(track?.art));
   const recordSrc = $derived(resolveArtSrc(playerState.theme?.record));
-  const albumName = $derived(spotifyRunning ? (track?.album ?? track?.title ?? null) : null);
-  const trackTitle = $derived(spotifyRunning ? (track?.title ?? null) : null);
   const songUrl = $derived(spotifyRunning && track ? trackLink(track) : null);
-  const albumUrl = $derived(spotifyRunning && track ? albumLink(track) : null);
+  const artistUrl = $derived(spotifyRunning && track ? artistLink(track) : null);
 
-
+  function openExternal(link: SpotifyLink | null): void {
+    if (!link) return;
+    void openSpotifyLink(link);
+  }
 </script>
 
 <main
@@ -75,34 +76,60 @@
     {sleeveSrc}
     {fallbackArtSrc}
     {recordSrc}
-    {albumName}
-    {trackTitle}
-    {albumUrl}
-    {songUrl}
     {progress}
     {isHidden}
     {reducedMotion}
+    onPlayPause={() => void playerStore.runCommand({ type: "playPause" })}
+    onOpenSpotify={() => void playerStore.runOpenSpotify()}
   />
 
-  <span class="title clip"><ScrollText text={titleText} {reducedMotion} /></span>
+  <span class="title clip">
+    {#if songUrl}
+      <button
+        type="button"
+        class="text-link"
+        aria-label={`Open song ${titleText} on Spotify`}
+        onclick={() => openExternal(songUrl)}
+      >
+        <ScrollText text={titleText} {reducedMotion} />
+      </button>
+    {:else}
+      <ScrollText text={titleText} {reducedMotion} />
+    {/if}
+  </span>
   {#if artistText}
-    <span class="artist clip"><ScrollText text={artistText} {reducedMotion} /></span>
+    <span class="artist clip">
+      {#if artistUrl}
+        <button
+          type="button"
+          class="text-link"
+          aria-label={`Open artist ${track?.artists[0] ?? artistText} on Spotify`}
+          onclick={() => openExternal(artistUrl)}
+        >
+          <ScrollText text={artistText} {reducedMotion} />
+        </button>
+      {:else}
+        <ScrollText text={artistText} {reducedMotion} />
+      {/if}
+    </span>
   {/if}
   {#if timeText}<span class="time">{timeText}</span>{/if}
 
   <div class="control-fade" aria-hidden="true"></div>
   <KeyBank
     variant="strip"
-    playback={playerState.playback}
     {spotifyRunning}
     liked={playerState.liked}
+    shuffle={playerState.shuffle}
+    repeat={playerState.repeat}
     {reducedMotion}
     onPrevious={() => void playerStore.runCommand({ type: "previous" })}
-    onPlayPause={() => void playerStore.runCommand({ type: "playPause" })}
     onNext={() => void playerStore.runCommand({ type: "next" })}
+    onSetPlaybackMode={(shuffle, repeat) =>
+      void playerStore.runCommand({ type: "setPlaybackMode", shuffle, repeat })
+    }
     onToggleLike={() =>
       void playerStore.runCommand({ type: "setLiked", liked: !(playerState.liked ?? false) })}
-    onOpenSpotify={() => void playerStore.runOpenSpotify()}
   />
 
   <div class="progress-line" class:volume={volumeActive}>
@@ -130,6 +157,7 @@
 
   .clip {
     position: absolute;
+    z-index: 2;
     display: block;
     overflow: hidden;
     white-space: nowrap;
@@ -150,6 +178,31 @@
     width: 116px;
     color: var(--ink-muted);
     font: 400 11px/1.2 "Bahnschrift", "Segoe UI", sans-serif;
+  }
+
+  .text-link {
+    appearance: none;
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: top;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: color 140ms ease;
+  }
+
+  .text-link:hover,
+  .text-link:focus-visible {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent) 80%, currentColor);
+    text-underline-offset: 2px;
   }
 
   .time {
@@ -231,5 +284,4 @@
   .no-motion .progress-line span {
     transition: none;
   }
-
 </style>

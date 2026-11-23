@@ -14,6 +14,8 @@ pub struct PlayerState {
     pub position: Option<Position>,
     pub volume_pct: Option<u8>,          // 0..=100, Web API only
     pub liked: Option<bool>,             // Web API only
+    pub shuffle: Option<bool>,           // Web API only
+    pub repeat: Option<RepeatMode>,      // Web API only
     pub queue: Option<Vec<Track>>,       // None = unknown / signed out; Some(vec![]) = empty
     pub auth: Auth,
     pub theme: Option<Theme>,
@@ -21,10 +23,13 @@ pub struct PlayerState {
 }
 // Default: spotify_running=false, playback=Stopped, auth=NoClientId, mode=Full, the rest None.
 
+pub enum RepeatMode { Off, Context, Track }
+
 pub struct Track {
     pub spotify_id: Option<String>,      // None when only SMTC knows the track
     pub title: String,
     pub artists: Vec<String>,
+    pub artist_id: Option<String>,       // Spotify primary artist id; None when only SMTC knows the track
     pub album: Option<String>,
     pub album_id: Option<String>,        // Spotify album id; None when only SMTC knows the track
     pub duration_ms: Option<u64>,
@@ -76,7 +81,7 @@ Each field has exactly one writer. Read anything; write only your own fields.
 | Field(s) | Writer |
 | --- | --- |
 | `spotify_running`, `track` (title, artists, album, art from SMTC), `playback`, `position` when signed out | `ferric-media` |
-| `track.spotify_id`, `track.duration_ms`, `track.art` when the Web API gives a bigger cover, `queue`, `liked`, `volume_pct`, `position` when signed in | `ferric-spotify` poller. It enriches the track only if the title and first artist match what SMTC reported. |
+| `track.spotify_id`, `track.artist_id`, `track.album_id`, `track.duration_ms`, `track.art` when the Web API gives a bigger cover, `queue`, `liked`, `shuffle`, `repeat`, `volume_pct`, `position` when signed in | `ferric-spotify` poller. It enriches the track only if the title and first artist match what SMTC reported. |
 | `auth` | `ferric-spotify` auth |
 | `theme` | `src-tauri` wiring (calls `ferric-theme`) |
 | `mode` | `src-tauri` window module |
@@ -92,6 +97,7 @@ pub enum Command {
     Seek { position_ms: u64 },
     SetVolume { pct: u8 },
     SetLiked { liked: bool },
+    SetPlaybackMode { shuffle: bool, repeat: RepeatMode },
     JumpTo { queue_index: u32 },         // 0 = next up; rejected if > 9
 }
 ```

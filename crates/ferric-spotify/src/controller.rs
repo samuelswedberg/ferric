@@ -119,6 +119,18 @@ impl Controller for SpotifyController {
                     .map_err(|error| map_control_error(error, false))?;
                 self.store.update(|state| state.liked = Some(*liked));
             }
+            Command::SetPlaybackMode { shuffle, repeat } => {
+                self.auth.note_playback_mode_set();
+                self.player_call(api.as_ref(), || api.set_shuffle(*shuffle))
+                    .await?;
+                self.player_call(api.as_ref(), || api.set_repeat(*repeat))
+                    .await?;
+                self.auth.note_playback_mode_set();
+                self.store.update(|state| {
+                    state.shuffle = Some(*shuffle);
+                    state.repeat = Some(*repeat);
+                });
+            }
             Command::JumpTo { queue_index } => {
                 if *queue_index > 9 {
                     return Err(ControlError::Other("too far".into()));
@@ -151,7 +163,7 @@ fn map_control_error(error: Error, player_endpoint: bool) -> ControlError {
 mod tests {
     use super::*;
     use crate::auth::MemoryTokenStore;
-    use ferric_core::model::Track;
+    use ferric_core::model::{RepeatMode, Track};
     use std::sync::Mutex;
 
     struct MockApi {
@@ -167,6 +179,8 @@ mod tests {
                     is_playing,
                     volume_pct: Some(50),
                     position_ms: Some(0),
+                    shuffle: Some(false),
+                    repeat: Some(RepeatMode::Off),
                     track: None,
                 }),
             }
@@ -220,6 +234,14 @@ mod tests {
             self.record(format!("liked:{liked}"));
             Ok(())
         }
+        async fn set_shuffle(&self, enabled: bool) -> Result<(), Error> {
+            self.record(format!("shuffle:{enabled}"));
+            Ok(())
+        }
+        async fn set_repeat(&self, mode: RepeatMode) -> Result<(), Error> {
+            self.record(format!("repeat:{mode:?}"));
+            Ok(())
+        }
     }
 
     fn controller(api: Arc<MockApi>) -> SpotifyController {
@@ -229,6 +251,7 @@ mod tests {
                 spotify_id: Some("track1".into()),
                 title: "Song".into(),
                 artists: vec!["Artist".into()],
+                artist_id: Some("artist1".into()),
                 album: None,
                 album_id: None,
                 duration_ms: None,
@@ -260,7 +283,7 @@ mod tests {
     #[tokio::test]
     async fn optimistic_updates_follow_success() {
         let api = Arc::new(MockApi::new(false));
-        let controller = controller(api);
+        let controller = controller(Arc::clone(&api));
         controller
             .execute(&Command::SetVolume { pct: 70 })
             .await
@@ -269,8 +292,21 @@ mod tests {
             .execute(&Command::SetLiked { liked: true })
             .await
             .unwrap();
+        controller
+            .execute(&Command::SetPlaybackMode {
+                shuffle: false,
+                repeat: RepeatMode::Track,
+            })
+            .await
+            .unwrap();
         assert_eq!(controller.store.get().volume_pct, Some(70));
         assert_eq!(controller.store.get().liked, Some(true));
+        assert_eq!(controller.store.get().shuffle, Some(false));
+        assert_eq!(controller.store.get().repeat, Some(RepeatMode::Track));
+        assert_eq!(
+            *api.calls.lock().unwrap(),
+            ["volume:70", "liked:true", "shuffle:false", "repeat:Track"]
+        );
     }
 
     #[tokio::test]

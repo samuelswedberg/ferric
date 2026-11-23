@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::model::RepeatMode;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "type",
@@ -22,6 +24,10 @@ pub enum Command {
     SetLiked {
         liked: bool,
     },
+    SetPlaybackMode {
+        shuffle: bool,
+        repeat: RepeatMode,
+    },
     JumpTo {
         queue_index: u32,
     },
@@ -30,6 +36,7 @@ pub enum Command {
 #[cfg(test)]
 mod tests {
     use super::Command;
+    use crate::model::RepeatMode;
     use serde_json::{json, Value};
 
     fn assert_round_trip(command: Command, expected: Value) {
@@ -56,6 +63,13 @@ mod tests {
         assert_round_trip(
             Command::SetLiked { liked: true },
             json!({"type": "setLiked", "liked": true}),
+        );
+        assert_round_trip(
+            Command::SetPlaybackMode {
+                shuffle: true,
+                repeat: RepeatMode::Context,
+            },
+            json!({"type": "setPlaybackMode", "shuffle": true, "repeat": "context"}),
         );
         assert_round_trip(
             Command::JumpTo { queue_index: 3 },

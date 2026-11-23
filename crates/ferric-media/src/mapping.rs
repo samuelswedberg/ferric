@@ -26,6 +26,9 @@ pub(crate) fn map_track(metadata: MediaMetadata, previous: Option<&Track>) -> Tr
             .flatten(),
         title: metadata.title,
         artists,
+        artist_id: same_track
+            .then(|| previous.and_then(|track| track.artist_id.clone()))
+            .flatten(),
         album: (!metadata.album.is_empty()).then_some(metadata.album),
         album_id: same_track
             .then(|| previous.and_then(|track| track.album_id.clone()))
@@ -160,6 +163,7 @@ mod tests {
             spotify_id: Some("spotify-id".into()),
             title: "Song".into(),
             artists: vec!["One".into()],
+            artist_id: Some("artist-id".into()),
             album: None,
             album_id: Some("album-id".into()),
             duration_ms: Some(42),
@@ -167,6 +171,7 @@ mod tests {
         };
         let track = map_track(metadata("Song", "One, Guest"), Some(&previous));
         assert_eq!(track.spotify_id.as_deref(), Some("spotify-id"));
+        assert_eq!(track.artist_id.as_deref(), Some("artist-id"));
         assert_eq!(track.album_id.as_deref(), Some("album-id"));
         assert_eq!(track.duration_ms, Some(42));
     }
@@ -177,6 +182,7 @@ mod tests {
             spotify_id: Some("spotify-id".into()),
             title: "Song".into(),
             artists: vec!["One".into()],
+            artist_id: None,
             album: None,
             album_id: None,
             duration_ms: None,
@@ -215,6 +221,7 @@ mod tests {
             spotify_id: Some("spotify-id".into()),
             title: "Old".into(),
             artists: vec!["One".into()],
+            artist_id: Some("artist-id".into()),
             album: None,
             album_id: Some("album-id".into()),
             duration_ms: Some(42),
@@ -222,6 +229,7 @@ mod tests {
         };
         let track = map_track(metadata("New", "One"), Some(&previous));
         assert_eq!(track.spotify_id, None);
+        assert_eq!(track.artist_id, None);
         assert_eq!(track.album_id, None);
         assert_eq!(track.duration_ms, None);
     }
