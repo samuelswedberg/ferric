@@ -38,7 +38,7 @@ scoop install samuelswedberg/ferric
 
 Or download the latest NSIS (`-setup.exe`) or MSI installer from [GitHub Releases](https://github.com/samuelswedberg/ferric/releases/latest). Ferric checks GitHub for updates only in builds that contain the maintainer's updater public key, and it never installs an update until you click **Restart**.
 
-Both Windows installers add Ferric to the Start menu, so you can launch it by searching for **Ferric** in Windows Search.
+Both Windows installers add Ferric to the Start menu, and standalone release builds also register a per-user Start menu shortcut automatically when none points to the running executable, so you can launch it by searching for **Ferric** in Windows Search.
 
 ## Privacy
 
