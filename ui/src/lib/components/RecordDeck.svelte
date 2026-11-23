@@ -346,6 +346,23 @@
     {:else}
       <div class="sleeve-blank"></div>
     {/if}
+    <span
+      class="deck-scrim"
+      class:visible={deckHovered}
+      class:no-motion={reducedMotion}
+      aria-hidden="true"
+    >
+      {#if isPlaying}
+        <svg class="scrim-glyph" viewBox="0 0 18 20" aria-hidden="true">
+          <rect x="2" y="1" width="5" height="18" rx="1" fill="currentColor" />
+          <rect x="11" y="1" width="5" height="18" rx="1" fill="currentColor" />
+        </svg>
+      {:else}
+        <svg class="scrim-glyph" viewBox="0 0 18 20" aria-hidden="true">
+          <polygon points="3.5,1 17,10 3.5,19" fill="currentColor" />
+        </svg>
+      {/if}
+    </span>
   </button>
 
   <svg
@@ -572,6 +589,34 @@
     box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.35);
   }
 
+  .deck-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(24, 21, 18, 0.34);
+    color: rgba(237, 228, 212, 0.94);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms ease;
+  }
+
+  .deck-scrim.visible {
+    opacity: 1;
+  }
+
+  .deck-scrim.no-motion {
+    transition: none;
+  }
+
+  .scrim-glyph {
+    width: 34px;
+    height: 38px;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.65));
+  }
+
   .tonearm-layer {
     position: absolute;
     left: 0;
@@ -626,6 +671,11 @@
     box-shadow: 3px 4px 8px rgba(0, 0, 0, 0.7);
   }
 
+  .deck.card .scrim-glyph {
+    width: 20px;
+    height: 22px;
+  }
+
   .deck.card .tonearm-layer {
     transform: scale(0.42);
     transform-origin: 0 0;
@@ -678,9 +728,9 @@
     box-shadow: 1px 2px 3px rgba(0, 0, 0, 0.7);
   }
 
-  .deck.strip .sleeve:hover,
-  .deck.strip .record-hit:hover {
-    filter: brightness(1.12);
+  .deck.strip .scrim-glyph {
+    width: 10px;
+    height: 11px;
   }
 
   .deck.strip .tonearm-layer {
