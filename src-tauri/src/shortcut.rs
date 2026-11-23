@@ -60,12 +60,22 @@ fn candidate_shortcut_paths(user_programs: &Path, common_programs: Option<&Path>
 }
 
 #[cfg(any(windows, test))]
-fn normalize_path_for_shortcut(path: &Path) -> PathBuf {
+fn strip_verbatim_prefix(path: &Path) -> PathBuf {
     let raw = path.to_string_lossy();
-    if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+    if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{unc}"))
+    } else if let Some(stripped) = raw.strip_prefix(r"\\?\") {
         PathBuf::from(stripped)
     } else {
         path.to_path_buf()
+    }
+}
+
+#[cfg(any(windows, test))]
+fn normalize_path_for_shortcut(path: &Path) -> PathBuf {
+    match std::fs::canonicalize(path) {
+        Ok(canonical) => strip_verbatim_prefix(&canonical),
+        Err(_) => strip_verbatim_prefix(path),
     }
 }
 
@@ -306,6 +316,10 @@ mod tests {
             normalize_path_for_shortcut(Path::new(r"\\?\C:\Tools\Ferric\Ferric.exe")),
             PathBuf::from(r"C:\Tools\Ferric\Ferric.exe")
         );
+        assert_eq!(
+            normalize_path_for_shortcut(Path::new(r"\\?\UNC\server\share\Ferric.exe")),
+            PathBuf::from(r"\\server\share\Ferric.exe")
+        );
         assert!(paths_match(
             Path::new(r"\\?\C:\Tools\Ferric\Ferric.exe"),
             Path::new(r"c:/tools/ferric/ferric.exe")
@@ -377,7 +391,19 @@ mod tests {
             {
                 let _com = ComApartment::initialize().expect("com init");
                 let target = read_shortcut_target(&expected_lnk).expect("read shortcut target");
-                assert!(paths_match(&target, &exe_v1));
+                assert!(
+                    paths_match(&target, &exe_v1),
+                    "expected {} to match {}",
+                    target.display(),
+                    exe_v1.display()
+                );
+                let dotdot_v1 = root
+                    .path
+                    .join("v1")
+                    .join("..")
+                    .join("v1")
+                    .join("Ferric.exe");
+                assert!(paths_match(&target, &dotdot_v1));
             }
 
             let second = ensure_shortcut_in(&exe_v1, &user_programs, None)
