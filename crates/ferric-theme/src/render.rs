@@ -150,7 +150,7 @@ fn render_worn_square(
     // card rather than white (a bright, even line reads as a glowing halo on dark covers).
     let ring_r = s * 0.44;
     let ring_cx = s * 0.5;
-    let ring_cy = s * 0.52;
+    let ring_cy = s * 0.5;
     let ring_w = s * 0.03;
     let ring_arcs: Vec<(f32, f32, f32)> = if ring {
         (0..3)
@@ -202,7 +202,7 @@ fn render_worn_square(
                 let dx = xf - ring_cx;
                 let dy = yf - ring_cy;
                 // A slightly wobbly radius so the band isn't a perfect circle.
-                let t = (dx.hypot(dy) - ring_r - (nv - 0.5) * ring_w) / ring_w;
+                let t = (dx.hypot(dy) - ring_r - (nv - 0.5) * ring_w * 0.4) / ring_w;
                 let band = (-t * t).exp();
                 if band > 0.01 {
                     let rm = band

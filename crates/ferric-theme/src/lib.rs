@@ -16,7 +16,7 @@ use image::imageops::FilterType;
 use crate::noise::seed_from_key;
 
 // Bump when the rendered sleeve/record look changes, so cached art is redrawn.
-const CACHE_VERSION: &str = "3";
+const CACHE_VERSION: &str = "5";
 const SLEEVE_SALT: u64 = 0x534c_4545_5645_0001;
 const RECORD_SALT: u64 = 0x5245_434f_5244_0002;
 
@@ -56,14 +56,12 @@ pub fn extract(art_bytes: &[u8], album_key: &str, cache_dir: &Path) -> Result<Th
     let analysis = cover.resize_exact(64, 64, FilterType::Triangle).to_rgb8();
     let accent = color::ensure_contrast(color::pick_accent(&analysis), color::PLINTH, 4.5);
 
-    if !sleeve_path.is_file() {
-        let sleeve = render::render_sleeve(&cover, seed_from_key(album_key, SLEEVE_SALT));
-        render::write_fast_rgb_png(&sleeve, &sleeve_path)?;
-    }
-    if !record_path.is_file() {
-        let record = render::render_record(&cover, seed_from_key(album_key, RECORD_SALT));
-        render::write_fast_rgba_png(&record, &record_path)?;
-    }
+    // A miss (no metadata, or metadata from an older CACHE_VERSION) always redraws both
+    // images: files left by an older version must not be stamped as current.
+    let sleeve = render::render_sleeve(&cover, seed_from_key(album_key, SLEEVE_SALT));
+    render::write_fast_rgb_png(&sleeve, &sleeve_path)?;
+    let record = render::render_record(&cover, seed_from_key(album_key, RECORD_SALT));
+    render::write_fast_rgba_png(&record, &record_path)?;
     write_metadata(&meta_path, accent)?;
 
     Ok(build_theme(album_key, accent, sleeve_path, record_path))

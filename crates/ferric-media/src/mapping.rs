@@ -33,7 +33,14 @@ pub(crate) fn map_track(metadata: MediaMetadata, previous: Option<&Track>) -> Tr
         duration_ms: same_track
             .then(|| previous.and_then(|track| track.duration_ms))
             .flatten(),
-        art: metadata.art,
+        // Once the Spotify poller has supplied the (larger) cover for this track, keep it:
+        // swapping back to the media-session thumbnail on every update would flip the
+        // theme between two covers and redraw the sleeve every couple of seconds.
+        art: same_track
+            .then(|| previous.and_then(|track| track.art.clone()))
+            .flatten()
+            .filter(|art| matches!(art, Art::Url { .. }))
+            .or(metadata.art),
     }
 }
 
@@ -162,6 +169,44 @@ mod tests {
         assert_eq!(track.spotify_id.as_deref(), Some("spotify-id"));
         assert_eq!(track.album_id.as_deref(), Some("album-id"));
         assert_eq!(track.duration_ms, Some(42));
+    }
+
+    #[test]
+    fn track_keeps_the_spotify_cover_for_the_same_track() {
+        let previous = Track {
+            spotify_id: Some("spotify-id".into()),
+            title: "Song".into(),
+            artists: vec!["One".into()],
+            album: None,
+            album_id: None,
+            duration_ms: None,
+            art: Some(Art::Url {
+                url: "https://i.scdn.co/640.jpg".into(),
+            }),
+        };
+        let mut input = metadata("Song", "One");
+        input.art = Some(Art::File {
+            path: "thumb.jpg".into(),
+        });
+        let track = map_track(input, Some(&previous));
+        assert_eq!(
+            track.art,
+            Some(Art::Url {
+                url: "https://i.scdn.co/640.jpg".into()
+            })
+        );
+
+        let mut next = metadata("Other", "One");
+        next.art = Some(Art::File {
+            path: "thumb2.jpg".into(),
+        });
+        let track = map_track(next, Some(&previous));
+        assert_eq!(
+            track.art,
+            Some(Art::File {
+                path: "thumb2.jpg".into()
+            })
+        );
     }
 
     #[test]
