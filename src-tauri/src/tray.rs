@@ -64,6 +64,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let config_separator = PredefinedMenuItem::separator(app)?;
     let sign_out = MenuItem::with_id(app, "sign-out", "Sign out", true, None::<&str>)?;
     let account_separator = PredefinedMenuItem::separator(app)?;
+    let restart = MenuItem::with_id(app, "restart", "Restart Ferric", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -81,6 +82,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &config_separator,
             &sign_out,
             &account_separator,
+            &restart,
             &quit,
         ],
     )?;
@@ -153,18 +155,47 @@ fn mode_item(
 }
 
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
-    match event.id().as_ref() {
-        "visibility" => toggle_window(app),
-        "always-on-top" => toggle_always_on_top(app),
-        "mode-full" => change_mode(app, Mode::Full),
-        "mode-card" => change_mode(app, Mode::Card),
-        "mode-strip" => change_mode(app, Mode::Strip),
-        "open-config" => open_config(app),
-        "start-with-windows" => toggle_start_with_windows(app),
-        "fade-when-idle" => toggle_fade_when_idle(app),
-        "sign-out" => sign_out(app),
-        "quit" => app.exit(0),
-        _ => {}
+    match action_for_menu_id(event.id().as_ref()) {
+        Some(TrayAction::Visibility) => toggle_window(app),
+        Some(TrayAction::AlwaysOnTop) => toggle_always_on_top(app),
+        Some(TrayAction::Mode(mode)) => change_mode(app, mode),
+        Some(TrayAction::OpenConfig) => open_config(app),
+        Some(TrayAction::StartWithWindows) => toggle_start_with_windows(app),
+        Some(TrayAction::FadeWhenIdle) => toggle_fade_when_idle(app),
+        Some(TrayAction::SignOut) => sign_out(app),
+        Some(TrayAction::Restart) => app.request_restart(),
+        Some(TrayAction::Quit) => app.exit(0),
+        None => {}
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum TrayAction {
+    Visibility,
+    AlwaysOnTop,
+    Mode(Mode),
+    OpenConfig,
+    StartWithWindows,
+    FadeWhenIdle,
+    SignOut,
+    Restart,
+    Quit,
+}
+
+fn action_for_menu_id(id: &str) -> Option<TrayAction> {
+    match id {
+        "visibility" => Some(TrayAction::Visibility),
+        "always-on-top" => Some(TrayAction::AlwaysOnTop),
+        "mode-full" => Some(TrayAction::Mode(Mode::Full)),
+        "mode-card" => Some(TrayAction::Mode(Mode::Card)),
+        "mode-strip" => Some(TrayAction::Mode(Mode::Strip)),
+        "open-config" => Some(TrayAction::OpenConfig),
+        "start-with-windows" => Some(TrayAction::StartWithWindows),
+        "fade-when-idle" => Some(TrayAction::FadeWhenIdle),
+        "sign-out" => Some(TrayAction::SignOut),
+        "restart" => Some(TrayAction::Restart),
+        "quit" => Some(TrayAction::Quit),
+        _ => None,
     }
 }
 
@@ -243,5 +274,22 @@ fn toggle_always_on_top(app: &AppHandle) {
 fn change_mode(app: &AppHandle, mode: Mode) {
     if let Err(error) = crate::window::set_mode(app, mode) {
         tracing::warn!(%error, ?mode, "failed to change window mode");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ferric_core::model::Mode;
+
+    use super::{action_for_menu_id, TrayAction};
+
+    #[test]
+    fn tray_menu_ids_map_to_their_actions() {
+        assert_eq!(
+            action_for_menu_id("mode-card"),
+            Some(TrayAction::Mode(Mode::Card))
+        );
+        assert_eq!(action_for_menu_id("restart"), Some(TrayAction::Restart));
+        assert_eq!(action_for_menu_id("unknown"), None);
     }
 }

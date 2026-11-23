@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod hotkeys;
 mod router;
+mod shortcut;
 mod theming;
 mod tray;
 mod updater;
@@ -36,6 +37,7 @@ pub fn run() {
             window::setup(app.handle())?;
             tray::build(app.handle())?;
             config::setup(app)?;
+            shortcut::setup();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
