@@ -15,6 +15,8 @@ use crate::noise::{
 };
 
 pub const SLEEVE_SIZE: u32 = 480;
+/// Peak blend of the ring-wear band towards bare card.
+const RING_STRENGTH: f32 = 0.16;
 pub const RECORD_SIZE: u32 = 480;
 
 pub fn render_sleeve(cover: &DynamicImage, seed: u64) -> RgbImage {
@@ -98,6 +100,21 @@ pub fn render_record(cover: &DynamicImage, seed: u64) -> RgbaImage {
     out
 }
 
+/// How hard the record pressed at angle `theta`: a faint base all round, plus a few
+/// arcs `(centre, width, weight)` where the wear is strongest.
+fn ring_pressure(theta: f32, arcs: &[(f32, f32, f32)]) -> f32 {
+    use std::f32::consts::PI;
+    let mut pressure = 0.12;
+    for &(centre, width, weight) in arcs {
+        let mut d = (theta - centre).abs();
+        if d > PI {
+            d = 2.0 * PI - d;
+        }
+        pressure += weight * (-(d / width).powi(2)).exp();
+    }
+    pressure.min(1.0)
+}
+
 fn render_worn_square(
     cover: &DynamicImage,
     size: u32,
@@ -127,11 +144,27 @@ fn render_worn_square(
 
     let edge_span = s * 0.02;
     let corner_span = s * 0.07;
+    // Ring wear: where the record's edge pressed through the sleeve, the print is rubbed
+    // back towards bare card. Real ring wear is soft, speckled and uneven: strongest on a
+    // couple of arcs where the pressure was, nearly gone elsewhere, and the colour of the
+    // card rather than white (a bright, even line reads as a glowing halo on dark covers).
     let ring_r = s * 0.44;
     let ring_cx = s * 0.5;
-    let ring_cy = s * 0.52;
-    let ring_w1 = s * 0.012;
-    let ring_w2 = s * 0.05;
+    let ring_cy = s * 0.5;
+    let ring_w = s * 0.03;
+    let ring_arcs: Vec<(f32, f32, f32)> = if ring {
+        (0..3)
+            .map(|_| {
+                (
+                    rng.uniform(-std::f32::consts::PI, std::f32::consts::PI),
+                    rng.uniform(0.45, 1.1),
+                    rng.uniform(0.55, 1.0),
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let mut out = RgbImage::new(size, size);
     for y in 0..w {
@@ -166,12 +199,19 @@ fn render_worn_square(
             }
 
             if ring {
-                let r = (xf - ring_cx).hypot(yf - ring_cy);
-                let t1 = (r - ring_r) / ring_w1;
-                let t2 = (r - ring_r) / ring_w2;
-                let rm = ((-t1 * t1).exp() * 0.22 + (-t2 * t2).exp() * 0.06) * (0.6 + 0.8 * nv);
-                for ch in &mut rgb {
-                    *ch = *ch * (1.0 - rm) + 255.0 * rm;
+                let dx = xf - ring_cx;
+                let dy = yf - ring_cy;
+                // A slightly wobbly radius so the band isn't a perfect circle.
+                let t = (dx.hypot(dy) - ring_r - (nv - 0.5) * ring_w * 0.4) / ring_w;
+                let band = (-t * t).exp();
+                if band > 0.01 {
+                    let rm = band
+                        * ring_pressure(dy.atan2(dx), &ring_arcs)
+                        * (0.35 + 0.65 * rng.next_f32())
+                        * RING_STRENGTH;
+                    for (ch, p) in rgb.iter_mut().zip(paper) {
+                        *ch = *ch * (1.0 - rm) + p * rm;
+                    }
                 }
             }
 

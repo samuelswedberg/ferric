@@ -292,6 +292,30 @@ fn cache_hit_does_not_decode_or_rewrite_files() {
 }
 
 #[test]
+fn stale_cache_version_redraws_existing_images() {
+    let cache = TestDir::new();
+    let bytes = fixture("moss", 240, ImageFormat::Png);
+    let first = extract(&bytes, "old-album", cache.path()).unwrap();
+    let Some(Art::File { path: sleeve_path }) = &first.sleeve else {
+        panic!("expected sleeve")
+    };
+    let Some(Art::File { path: record_path }) = &first.record else {
+        panic!("expected record")
+    };
+    let fresh_sleeve = fs::read(sleeve_path).unwrap();
+
+    // Simulate images and metadata left by an older CACHE_VERSION.
+    fs::write(sleeve_path, b"old sleeve").unwrap();
+    fs::write(record_path, b"old record").unwrap();
+    let meta_path = cache.path().join("theme-old-album.meta");
+    fs::write(&meta_path, "1,10,20,30").unwrap();
+
+    extract(&bytes, "old-album", cache.path()).unwrap();
+    assert_eq!(fs::read(sleeve_path).unwrap(), fresh_sleeve);
+    assert_ne!(fs::read(record_path).unwrap(), b"old record");
+}
+
+#[test]
 #[ignore = "release-mode performance check: cargo test -p ferric-theme --release -- --ignored --nocapture"]
 fn release_timing_for_640_jpeg() {
     let bytes = fixture("ember", 640, ImageFormat::Jpeg);
