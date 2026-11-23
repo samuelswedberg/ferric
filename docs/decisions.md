@@ -1,0 +1,3 @@
+# Decisions
+
+- 2026-11-22 · Register a per-user Start Menu shortcut (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Ferric.lnk`) automatically on release startup when no existing Start Menu shortcut (user, Scoop, or machine-wide installer) already points to the current executable, while skipping debug builds and configuring explicit Tauri bundle icons and NSIS metadata in `tauri.conf.json`. This makes both installed and standalone/portable release builds discoverable in Windows Search without duplicating installer shortcuts or polluting the Start Menu during `cargo tauri dev`; installer-only discovery was rejected because standalone release binaries would remain invisible to Windows Search.

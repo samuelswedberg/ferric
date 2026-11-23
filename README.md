@@ -38,6 +38,8 @@ scoop install samuelswedberg/ferric
 
 Or download the latest NSIS (`-setup.exe`) or MSI installer from [GitHub Releases](https://github.com/samuelswedberg/ferric/releases/latest). Ferric checks GitHub for updates only in builds that contain the maintainer's updater public key, and it never installs an update until you click **Restart**.
 
+Both Windows installers add Ferric to the Start menu, and standalone release builds also register a per-user Start menu shortcut automatically when none points to the running executable, so you can launch it by searching for **Ferric** in Windows Search.
+
 ## Privacy
 
 Ferric has no analytics, advertising, or telemetry. It contacts Spotify for sign-in, playback controls, metadata, and album art; LRCLIB only when the optional lyrics feature is enabled; and GitHub only to check for app updates. The Spotify developer dashboard and track pages open in your browser only when you click their links. Your Spotify refresh token stays in Windows Credential Manager.
