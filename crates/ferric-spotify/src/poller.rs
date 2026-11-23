@@ -101,12 +101,14 @@ pub async fn run(store: Store, auth: Arc<Authenticator>, mut visible: watch::Rec
         let mut retries = 0;
         loop {
             let volume_hold = auth.volume_recently_set();
+            let playback_mode_hold = auth.playback_mode_recently_set();
             if let Some(delay) = poll_cycle(
                 &store,
                 api,
                 signed_in,
                 is_visible,
                 volume_hold,
+                playback_mode_hold,
                 &mut poll_state,
             )
             .await
@@ -189,12 +191,15 @@ async fn poll_cycle(
     signed_in: bool,
     visible: bool,
     volume_hold: bool,
+    playback_mode_hold: bool,
     state: &mut PollState,
 ) -> Option<Duration> {
     if !signed_in || api.is_none() {
         store.update(|player| {
             player.queue = None;
             player.liked = None;
+            player.shuffle = None;
+            player.repeat = None;
             player.volume_pct = None;
         });
         return None;
@@ -213,7 +218,7 @@ async fn poll_cycle(
             Ok(playback) => {
                 state.backoff.success();
                 state.session_active = playback.is_some();
-                matched_track_id = apply_playback(store, playback, volume_hold);
+                matched_track_id = apply_playback(store, playback, volume_hold, playback_mode_hold);
                 state.last_match_missed = matched_track_id.is_none() && store.get().track.is_some();
             }
             Err(error) => {
@@ -303,10 +308,12 @@ fn rate_limit_delay(state: &mut PollState, error: &Error) -> Option<Duration> {
 }
 
 /// `volume_hold`: the user just set the volume, and this poll may predate it.
+/// `playback_mode_hold`: the user just changed shuffle/repeat, and this poll may predate it.
 fn apply_playback(
     store: &Store,
     playback: Option<api::Playback>,
     volume_hold: bool,
+    playback_mode_hold: bool,
 ) -> Option<String> {
     // No active Spotify session (e.g. paused for a while): keep the last known volume
     // and queue so the knob and list don't go blank; Windows' media session still
@@ -322,6 +329,10 @@ fn apply_playback(
     store.update(|player| {
         if !volume_hold {
             player.volume_pct = playback.volume_pct;
+        }
+        if !playback_mode_hold {
+            player.shuffle = playback.shuffle;
+            player.repeat = playback.repeat;
         }
         player.position = playback.position_ms.map(|ms| Position {
             ms,
@@ -366,6 +377,7 @@ fn normalized(value: &str) -> String {
 
 fn enrich_track(current: &mut Track, remote: &api::Track) {
     current.spotify_id.clone_from(&remote.id);
+    current.artist_id.clone_from(&remote.artist_id);
     current.album_id.clone_from(&remote.album_id);
     current.duration_ms = Some(remote.duration_ms);
     if let Some(image) = preferred_image(&remote.images) {
@@ -390,6 +402,7 @@ fn map_track(track: api::Track) -> Track {
         spotify_id: track.id,
         title: track.title,
         artists: track.artists,
+        artist_id: track.artist_id,
         album: track.album,
         album_id: track.album_id,
         duration_ms: Some(track.duration_ms),
@@ -413,7 +426,7 @@ fn track_identity(track: &Option<Track>) -> Option<(String, String)> {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use ferric_core::model::Playback as PlaybackState;
+    use ferric_core::model::{Playback as PlaybackState, RepeatMode};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct CountingApi {
@@ -488,6 +501,14 @@ mod tests {
             self.called();
             Ok(())
         }
+        async fn set_shuffle(&self, _: bool) -> Result<(), Error> {
+            self.called();
+            Ok(())
+        }
+        async fn set_repeat(&self, _: RepeatMode) -> Result<(), Error> {
+            self.called();
+            Ok(())
+        }
     }
 
     fn local_track(title: &str) -> Track {
@@ -495,6 +516,7 @@ mod tests {
             spotify_id: None,
             title: title.into(),
             artists: vec!["Artist".into()],
+            artist_id: None,
             album: None,
             album_id: None,
             duration_ms: None,
@@ -506,6 +528,7 @@ mod tests {
             id: Some("track1".into()),
             title: title.into(),
             artists: vec![" artist ".into()],
+            artist_id: Some("artist1".into()),
             album: Some("Album".into()),
             album_id: Some("album1".into()),
             duration_ms: 1000,
@@ -522,10 +545,12 @@ mod tests {
         let store = Store::new();
         let api = CountingApi::default();
         let mut state = PollState::default();
-        poll_cycle(&store, Some(&api), true, false, false, &mut state).await;
-        poll_cycle(&store, Some(&api), false, true, false, &mut state).await;
+        poll_cycle(&store, Some(&api), true, false, false, false, &mut state).await;
+        poll_cycle(&store, Some(&api), false, true, false, false, &mut state).await;
         assert_eq!(api.count(), 0);
         assert_eq!(store.get().queue, None);
+        assert_eq!(store.get().shuffle, None);
+        assert_eq!(store.get().repeat, None);
     }
 
     #[tokio::test]
@@ -539,22 +564,27 @@ mod tests {
                 is_playing: true,
                 volume_pct: Some(65),
                 position_ms: Some(750),
+                shuffle: Some(true),
+                repeat: Some(RepeatMode::Context),
                 track: Some(remote.clone()),
             }),
             queue: vec![remote],
             liked: true,
         };
         let mut state = PollState::default();
-        poll_cycle(&store, Some(&api), true, true, false, &mut state).await;
+        poll_cycle(&store, Some(&api), true, true, false, false, &mut state).await;
 
         let snapshot = store.get();
         assert_eq!(api.count(), 3);
         assert_eq!(snapshot.volume_pct, Some(65));
         assert_eq!(snapshot.position.unwrap().ms, 750);
         assert_eq!(snapshot.liked, Some(true));
+        assert_eq!(snapshot.shuffle, Some(true));
+        assert_eq!(snapshot.repeat, Some(RepeatMode::Context));
         assert_eq!(snapshot.queue.unwrap().len(), 1);
         let track = snapshot.track.unwrap();
         assert_eq!(track.spotify_id.as_deref(), Some("track1"));
+        assert_eq!(track.artist_id.as_deref(), Some("artist1"));
         assert_eq!(track.album_id.as_deref(), Some("album1"));
         assert_eq!(track.duration_ms, Some(1000));
     }
@@ -566,7 +596,7 @@ mod tests {
             state.volume_pct = Some(50);
             state.queue = Some(vec![local_track("Next")]);
         });
-        assert_eq!(apply_playback(&store, None, false), None);
+        assert_eq!(apply_playback(&store, None, false, false), None);
         let snapshot = store.get();
         assert_eq!(snapshot.volume_pct, Some(50));
         assert_eq!(snapshot.queue.map(|queue| queue.len()), Some(1));
@@ -586,6 +616,7 @@ mod tests {
         assert!(same_track(&current, &remote));
         enrich_track(&mut current, &remote);
         assert_eq!(current.spotify_id.as_deref(), Some("track1"));
+        assert_eq!(current.artist_id.as_deref(), Some("artist1"));
         assert_eq!(current.duration_ms, Some(1000));
     }
 
@@ -614,8 +645,11 @@ mod tests {
                 is_playing: false,
                 volume_pct: Some(55),
                 position_ms: Some(250),
+                shuffle: Some(false),
+                repeat: Some(RepeatMode::Off),
                 track: Some(remote_track("Song")),
             }),
+            false,
             false,
         );
         assert_eq!(store.get().playback, PlaybackState::Playing);
@@ -632,10 +666,37 @@ mod tests {
                 is_playing: true,
                 volume_pct: Some(40),
                 position_ms: Some(0),
+                shuffle: Some(true),
+                repeat: Some(RepeatMode::Off),
                 track: None,
             }),
             true,
+            false,
         );
         assert_eq!(store.get().volume_pct, Some(80));
+    }
+
+    #[test]
+    fn playback_mode_hold_keeps_a_just_set_shuffle_and_repeat() {
+        let store = Store::new();
+        store.update(|state| {
+            state.shuffle = Some(false);
+            state.repeat = Some(RepeatMode::Track);
+        });
+        apply_playback(
+            &store,
+            Some(api::Playback {
+                is_playing: true,
+                volume_pct: Some(40),
+                position_ms: Some(0),
+                shuffle: Some(true),
+                repeat: Some(RepeatMode::Off),
+                track: None,
+            }),
+            false,
+            true,
+        );
+        assert_eq!(store.get().shuffle, Some(false));
+        assert_eq!(store.get().repeat, Some(RepeatMode::Track));
     }
 }

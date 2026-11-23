@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use ferric_core::model::RepeatMode;
 use rspotify::{
     clients::{BaseClient, OAuthClient},
     http::HttpError,
@@ -20,6 +21,7 @@ pub(crate) struct Track {
     pub id: Option<String>,
     pub title: String,
     pub artists: Vec<String>,
+    pub artist_id: Option<String>,
     pub album: Option<String>,
     pub album_id: Option<String>,
     pub duration_ms: u64,
@@ -31,6 +33,8 @@ pub(crate) struct Playback {
     pub is_playing: bool,
     pub volume_pct: Option<u8>,
     pub position_ms: Option<u64>,
+    pub shuffle: Option<bool>,
+    pub repeat: Option<RepeatMode>,
     pub track: Option<Track>,
 }
 
@@ -70,6 +74,8 @@ pub(crate) trait SpotifyApi: Send + Sync {
     async fn seek(&self, position_ms: u64) -> Result<(), Error>;
     async fn volume(&self, pct: u8) -> Result<(), Error>;
     async fn set_liked(&self, track_id: &str, liked: bool) -> Result<(), Error>;
+    async fn set_shuffle(&self, enabled: bool) -> Result<(), Error>;
+    async fn set_repeat(&self, mode: RepeatMode) -> Result<(), Error>;
 }
 
 #[derive(Clone)]
@@ -177,6 +183,21 @@ impl SpotifyApi for RspotifyApi {
         };
         result.map_err(map_error)
     }
+
+    async fn set_shuffle(&self, enabled: bool) -> Result<(), Error> {
+        self.empty_put(&format!("me/player/shuffle?state={enabled}"))
+            .await
+    }
+
+    async fn set_repeat(&self, mode: RepeatMode) -> Result<(), Error> {
+        let state = match mode {
+            RepeatMode::Off => "off",
+            RepeatMode::Context => "context",
+            RepeatMode::Track => "track",
+        };
+        self.empty_put(&format!("me/player/repeat?state={state}"))
+            .await
+    }
 }
 
 #[derive(Deserialize)]
@@ -184,6 +205,8 @@ struct RawPlayback {
     #[serde(default)]
     is_playing: bool,
     progress_ms: Option<u64>,
+    shuffle_state: Option<bool>,
+    repeat_state: Option<String>,
     device: Option<RawDevice>,
     item: Option<Value>,
 }
@@ -212,6 +235,7 @@ struct RawTrack {
 
 #[derive(Deserialize)]
 struct RawNamed {
+    id: Option<String>,
     name: String,
 }
 
@@ -250,8 +274,19 @@ fn parse_playback(body: &str) -> Option<Playback> {
             .and_then(|device| device.volume_percent)
             .and_then(|value| u8::try_from(value).ok()),
         position_ms: raw.progress_ms,
+        shuffle: raw.shuffle_state,
+        repeat: raw.repeat_state.as_deref().and_then(parse_repeat_mode),
         track: raw.item.as_ref().and_then(parse_item),
     })
+}
+
+fn parse_repeat_mode(value: &str) -> Option<RepeatMode> {
+    match value {
+        "off" => Some(RepeatMode::Off),
+        "context" => Some(RepeatMode::Context),
+        "track" => Some(RepeatMode::Track),
+        _ => None,
+    }
 }
 
 fn parse_queue(body: &str) -> Vec<Track> {
@@ -278,6 +313,7 @@ fn parse_item(item: &Value) -> Option<Track> {
         }
     };
     let album = track.album;
+    let artist_id = track.artists.first().and_then(|artist| artist.id.clone());
     Some(Track {
         id: track.id,
         title: track.name,
@@ -286,6 +322,7 @@ fn parse_item(item: &Value) -> Option<Track> {
             .into_iter()
             .map(|artist| artist.name)
             .collect(),
+        artist_id,
         album: album
             .as_ref()
             .map(|album| album.name.clone())
@@ -352,6 +389,7 @@ mod tests {
         assert_eq!(track.id.as_deref(), Some("track1"));
         assert_eq!(track.title, "Song");
         assert_eq!(track.artists, ["Artist"]);
+        assert_eq!(track.artist_id.as_deref(), Some("artist1"));
         assert_eq!(track.album.as_deref(), Some("Album"));
         assert_eq!(track.album_id.as_deref(), Some("album1"));
         assert_eq!(track.duration_ms, 123_000);
@@ -362,16 +400,19 @@ mod tests {
     /// external_ids, popularity, linked_from, ...). These must still parse.
     #[test]
     fn trimmed_track_json_still_parses() {
-        let body = r#"{"is_playing":true,"progress_ms":4200,"device":{"volume_percent":42},
+        let body = r#"{"is_playing":true,"progress_ms":4200,"shuffle_state":true,"repeat_state":"context","device":{"volume_percent":42},
           "item":{"type":"track","id":"t2","name":"S.E.X. Narcissist","duration_ms":201000,
-            "artists":[{"name":"VIOLENT VIRA"}],
+            "artists":[{"id":"art2","name":"VIOLENT VIRA"}],
             "album":{"id":"a2","name":"Lover Of A Ghost","images":[{"url":"https://i.scdn.co/x.jpg","width":640,"height":640}]}}}"#;
         let playback = parse_playback(body).unwrap();
         assert!(playback.is_playing);
         assert_eq!(playback.volume_pct, Some(42));
         assert_eq!(playback.position_ms, Some(4200));
+        assert_eq!(playback.shuffle, Some(true));
+        assert_eq!(playback.repeat, Some(RepeatMode::Context));
         let track = playback.track.unwrap();
         assert_eq!(track.id.as_deref(), Some("t2"));
+        assert_eq!(track.artist_id.as_deref(), Some("art2"));
         assert_eq!(track.duration_ms, 201_000);
         assert_eq!(track.album_id.as_deref(), Some("a2"));
     }

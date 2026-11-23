@@ -1,7 +1,7 @@
 <script lang="ts">
   import { windowDrag } from "../../windowDrag";
   import type { PlayerState } from "../../bindings/PlayerState";
-  import { albumLink, trackLink } from "../../spotifyLinks";
+  import { artistLink, openSpotifyLink, trackLink, type SpotifyLink } from "../../spotifyLinks";
   import { formatTime, playerStore, resolveArtSrc } from "../../state.svelte";
   import KeyBank from "../KeyBank.svelte";
   import ProgressSlider from "../ProgressSlider.svelte";
@@ -46,11 +46,13 @@
   const sleeveSrc = $derived(resolveArtSrc(state.theme?.sleeve));
   const fallbackArtSrc = $derived(resolveArtSrc(track?.art));
   const recordSrc = $derived(resolveArtSrc(state.theme?.record));
-  const albumName = $derived(spotifyRunning ? (track?.album ?? track?.title ?? null) : null);
-  const trackTitle = $derived(spotifyRunning ? (track?.title ?? null) : null);
   const songUrl = $derived(spotifyRunning && track ? trackLink(track) : null);
-  const albumUrl = $derived(spotifyRunning && track ? albumLink(track) : null);
+  const artistUrl = $derived(spotifyRunning && track ? artistLink(track) : null);
 
+  function openExternal(link: SpotifyLink | null): void {
+    if (!link) return;
+    void openSpotifyLink(link);
+  }
 </script>
 
 <main
@@ -66,17 +68,45 @@
     {sleeveSrc}
     {fallbackArtSrc}
     {recordSrc}
-    {albumName}
-    {trackTitle}
-    {albumUrl}
-    {songUrl}
     {progress}
     {isHidden}
     {reducedMotion}
+    onPlayPause={() => void playerStore.runCommand({ type: "playPause" })}
+    onOpenSpotify={() => void playerStore.runOpenSpotify()}
   />
 
-  <h1 class="title"><ScrollText text={titleText} {reducedMotion} /></h1>
-  {#if artistText}<p class="artist"><ScrollText text={artistText} {reducedMotion} /></p>{/if}
+  <h1 class="title">
+    {#if songUrl}
+      <button
+        type="button"
+        class="text-link"
+        aria-label={`Open song ${titleText} on Spotify`}
+        onclick={() => openExternal(songUrl)}
+      >
+        <ScrollText text={titleText} {reducedMotion} />
+      </button>
+    {:else}
+      <ScrollText text={titleText} {reducedMotion} />
+    {/if}
+  </h1>
+
+  {#if artistText}
+    <p class="artist">
+      {#if artistUrl}
+        <button
+          type="button"
+          class="text-link"
+          aria-label={`Open artist ${track?.artists[0] ?? artistText} on Spotify`}
+          onclick={() => openExternal(artistUrl)}
+        >
+          <ScrollText text={artistText} {reducedMotion} />
+        </button>
+      {:else}
+        <ScrollText text={artistText} {reducedMotion} />
+      {/if}
+    </p>
+  {/if}
+
   {#if timeText}<span class="time">{timeText}</span>{/if}
 
   <ProgressSlider
@@ -92,16 +122,18 @@
   />
   <KeyBank
     variant="card"
-    playback={state.playback}
     {spotifyRunning}
     liked={state.liked}
+    shuffle={state.shuffle}
+    repeat={state.repeat}
     {reducedMotion}
     onPrevious={() => void playerStore.runCommand({ type: "previous" })}
-    onPlayPause={() => void playerStore.runCommand({ type: "playPause" })}
     onNext={() => void playerStore.runCommand({ type: "next" })}
+    onSetPlaybackMode={(shuffle, repeat) =>
+      void playerStore.runCommand({ type: "setPlaybackMode", shuffle, repeat })
+    }
     onToggleLike={() =>
       void playerStore.runCommand({ type: "setLiked", liked: !(state.liked ?? false) })}
-    onOpenSpotify={() => void playerStore.runOpenSpotify()}
   />
   <div
     class="grain-overlay"
@@ -145,6 +177,31 @@
     font: 400 12px/1.2 "Bahnschrift", "Segoe UI", sans-serif;
     overflow: hidden;
     pointer-events: none;
+  }
+
+  .text-link {
+    appearance: none;
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: top;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: color 140ms ease;
+  }
+
+  .text-link:hover,
+  .text-link:focus-visible {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent) 80%, currentColor);
+    text-underline-offset: 2px;
   }
 
   .time {

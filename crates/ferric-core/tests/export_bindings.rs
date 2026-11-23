@@ -1,6 +1,6 @@
 use ferric_core::{
     command::Command,
-    model::{Art, Auth, Mode, Playback, PlayerState, Position, Rgb, Theme, Track},
+    model::{Art, Auth, Mode, Playback, PlayerState, Position, RepeatMode, Rgb, Theme, Track},
 };
 use ts_rs::TS;
 
@@ -12,6 +12,7 @@ fn export_bindings() {
     Art::export(&config).expect("export Art");
     Playback::export(&config).expect("export Playback");
     Position::export(&config).expect("export Position");
+    RepeatMode::export(&config).expect("export RepeatMode");
     Auth::export(&config).expect("export Auth");
     Rgb::export(&config).expect("export Rgb");
     Theme::export(&config).expect("export Theme");

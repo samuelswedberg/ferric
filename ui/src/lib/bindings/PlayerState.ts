@@ -3,7 +3,8 @@ import type { Auth } from "./Auth";
 import type { Mode } from "./Mode";
 import type { Playback } from "./Playback";
 import type { Position } from "./Position";
+import type { RepeatMode } from "./RepeatMode";
 import type { Theme } from "./Theme";
 import type { Track } from "./Track";
 
-export type PlayerState = { spotifyRunning: boolean, track: Track | null, playback: Playback, position: Position | null, volumePct: number | null, liked: boolean | null, queue: Array<Track> | null, auth: Auth, theme: Theme | null, mode: Mode, };
+export type PlayerState = { spotifyRunning: boolean, track: Track | null, playback: Playback, position: Position | null, volumePct: number | null, liked: boolean | null, shuffle: boolean | null, repeat: RepeatMode | null, queue: Array<Track> | null, auth: Auth, theme: Theme | null, mode: Mode, };

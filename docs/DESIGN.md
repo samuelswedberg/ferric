@@ -61,8 +61,8 @@ Data flows one way: sources write to the `Store`, the app emits each new state t
 "Sleeve and record": a worn album sleeve (the cover art) and a dusty record on a dark, scuffed turntable plinth, at grit level 2. **The full spec, mockups and measurements are in [docs/design/](design/README.md).**
 
 - The album art is printed on a worn sleeve: faded, ring wear, rubbed corners, crease. The theme engine (T03) generates this, the record with the cover as its label, and the grain overlay, for each cover.
-- The record spins at 33⅓ RPM while playing. The tonearm shows progress, lifts on pause, and goes to its rest on stop, when the record slides back into the sleeve.
-- Controls: one recessed bank of icon-only matte keys (previous, play/pause, next, like), a metal-capped slider, and a ribbed volume knob in Full. Scrolling over Card/Strip changes the volume, with a temporary readout.
+- The record spins at 33⅓ RPM while playing. Clicking the sleeve or record toggles play/pause: hovering nudges the tonearm slightly, pausing rests the tonearm fully on its arm rest, and stopping slides the record back into the sleeve. Clicking the song title or artist opens the track or artist in Spotify.
+- Controls: one recessed bank of icon-only matte keys (previous, next, shuffle/repeat cycle, like), a metal-capped slider, and a ribbed volume knob in Full. Scrolling over Card/Strip changes the volume, with a temporary readout.
 - Accent: the most vivid of the cover's main colors, at least 4.5:1 against the plinth (`#1E1B18`). It's the only color that changes per album.
 - Type: Bahnschrift for the title and artist, Courier New for the time, Segoe Print for the handwritten queue. All ship with Windows.
 - Motion respects Windows' reduced-motion setting, and all animation stops while the window is hidden.

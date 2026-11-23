@@ -164,6 +164,8 @@ pub struct Authenticator {
     runtime: AuthRuntime,
     /// When the user last set the volume (unix ms); see `volume_recently_set`.
     volume_set_at_ms: AtomicU64,
+    /// When the user last changed shuffle/repeat (unix ms); see `playback_mode_recently_set`.
+    playback_mode_set_at_ms: AtomicU64,
 }
 
 impl Authenticator {
@@ -179,6 +181,7 @@ impl Authenticator {
             busy: AtomicBool::new(false),
             runtime,
             volume_set_at_ms: AtomicU64::new(0),
+            playback_mode_set_at_ms: AtomicU64::new(0),
         }
     }
 
@@ -193,6 +196,18 @@ impl Authenticator {
     pub(crate) fn volume_recently_set(&self) -> bool {
         const HOLD_MS: u64 = 2_000;
         now_unix_ms().saturating_sub(self.volume_set_at_ms.load(Ordering::Relaxed)) < HOLD_MS
+    }
+
+    /// Records that the user just changed shuffle/repeat (called before and after the request).
+    pub(crate) fn note_playback_mode_set(&self) {
+        self.playback_mode_set_at_ms
+            .store(now_unix_ms(), Ordering::Relaxed);
+    }
+
+    /// True for 2 s after the user changed shuffle/repeat so a stale poll doesn't flicker it back.
+    pub(crate) fn playback_mode_recently_set(&self) -> bool {
+        const HOLD_MS: u64 = 2_000;
+        now_unix_ms().saturating_sub(self.playback_mode_set_at_ms.load(Ordering::Relaxed)) < HOLD_MS
     }
 
     pub async fn set_client_id(&self, id: String) -> Result<(), AuthError> {

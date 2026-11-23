@@ -11,6 +11,8 @@ pub struct PlayerState {
     pub position: Option<Position>,
     pub volume_pct: Option<u8>,
     pub liked: Option<bool>,
+    pub shuffle: Option<bool>,
+    pub repeat: Option<RepeatMode>,
     pub queue: Option<Vec<Track>>,
     pub auth: Auth,
     pub theme: Option<Theme>,
@@ -26,12 +28,23 @@ impl Default for PlayerState {
             position: None,
             volume_pct: None,
             liked: None,
+            shuffle: None,
+            repeat: None,
             queue: None,
             auth: Auth::NoClientId,
             theme: None,
             mode: Mode::Full,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../ui/src/lib/bindings/")]
+pub enum RepeatMode {
+    Off,
+    Context,
+    Track,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -41,6 +54,8 @@ pub struct Track {
     pub spotify_id: Option<String>,
     pub title: String,
     pub artists: Vec<String>,
+    /// Spotify primary artist id, from the Web API poller; None when only SMTC knows the track.
+    pub artist_id: Option<String>,
     pub album: Option<String>,
     /// Spotify album id, from the Web API poller; None when only SMTC knows the track.
     pub album_id: Option<String>,
@@ -152,12 +167,21 @@ mod tests {
                 position: None,
                 volume_pct: None,
                 liked: None,
+                shuffle: None,
+                repeat: None,
                 queue: None,
                 auth: Auth::NoClientId,
                 theme: None,
                 mode: Mode::Full,
             }
         );
+    }
+
+    #[test]
+    fn repeat_mode_variants_are_camel_case() {
+        round_trip(&RepeatMode::Off, json!("off"));
+        round_trip(&RepeatMode::Context, json!("context"));
+        round_trip(&RepeatMode::Track, json!("track"));
     }
 
     #[test]
@@ -242,6 +266,7 @@ mod tests {
             spotify_id: Some("track-id".into()),
             title: "Title".into(),
             artists: vec!["Artist".into()],
+            artist_id: Some("artist-id".into()),
             album: Some("Album".into()),
             album_id: Some("album-id".into()),
             duration_ms: Some(123_000),
@@ -253,6 +278,7 @@ mod tests {
                 "spotifyId": "track-id",
                 "title": "Title",
                 "artists": ["Artist"],
+                "artistId": "artist-id",
                 "album": "Album",
                 "albumId": "album-id",
                 "durationMs": 123000,

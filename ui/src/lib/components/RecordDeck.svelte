@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { Playback } from "../bindings/Playback";
-  import { openSpotifyLink, type SpotifyLink } from "../spotifyLinks";
+  import { computeTonearmPose } from "../deckPose";
 
   interface Props {
     variant?: "full" | "card" | "strip";
@@ -10,13 +10,11 @@
     sleeveSrc: string | null;
     fallbackArtSrc: string | null;
     recordSrc: string | null;
-    albumName: string | null;
-    trackTitle: string | null;
-    albumUrl: SpotifyLink | null;
-    songUrl: SpotifyLink | null;
     progress: number;
     isHidden: boolean;
     reducedMotion: boolean;
+    onPlayPause: () => void;
+    onOpenSpotify: () => void;
   }
 
   let {
@@ -26,24 +24,23 @@
     sleeveSrc,
     fallbackArtSrc,
     recordSrc,
-    albumName,
-    trackTitle,
-    albumUrl,
-    songUrl,
     progress,
     isHidden,
     reducedMotion,
+    onPlayPause,
+    onOpenSpotify,
   }: Props = $props();
 
-  function openExternal(link: SpotifyLink | null): void {
-    if (!link) return;
-    void openSpotifyLink(link);
-  }
-
   let spinningEl: HTMLDivElement | undefined = $state();
+  let sleeveEl: HTMLButtonElement | undefined = $state();
+  let recordEl: HTMLButtonElement | undefined = $state();
   let spinAnim: Animation | null = null;
   let rateRaf: number | null = null;
   let currentRate = 0;
+
+  let sleeveHovered = $state(false);
+  let recordHovered = $state(false);
+  let deckFocused = $state(false);
 
   let activeSleeveSrc = $state<string | null>(null);
   let prevSleeveSrc = $state<string | null>(null);
@@ -59,7 +56,45 @@
 
   const isOut = $derived(spotifyRunning && playback !== "stopped");
   const isPlaying = $derived(spotifyRunning && playback === "playing");
-  const isPaused = $derived(spotifyRunning && playback === "paused");
+  const deckHovered = $derived(sleeveHovered || recordHovered || deckFocused);
+  const deckAriaLabel = $derived(
+    !spotifyRunning ? "Open Spotify" : isPlaying ? "Pause" : "Play",
+  );
+
+  function isDeckTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Node)) return false;
+    return Boolean(sleeveEl?.contains(target) || recordEl?.contains(target));
+  }
+
+  function handleDeckClick(): void {
+    if (spotifyRunning) onPlayPause();
+    else onOpenSpotify();
+  }
+
+  function onSleeveLeave(event: PointerEvent): void {
+    sleeveHovered = false;
+    if (!isDeckTarget(event.relatedTarget)) {
+      recordHovered = false;
+    }
+  }
+
+  function onRecordLeave(event: PointerEvent): void {
+    recordHovered = false;
+    if (!isDeckTarget(event.relatedTarget)) {
+      sleeveHovered = false;
+    }
+  }
+
+  function onSleeveFocus(event: FocusEvent): void {
+    const el = event.currentTarget as HTMLElement;
+    if (el.matches(":focus-visible")) {
+      deckFocused = true;
+    }
+  }
+
+  function onSleeveBlur(): void {
+    deckFocused = false;
+  }
 
   const effectiveSleeveSrc = $derived(
     spotifyRunning ? (sleeveSrc ?? fallbackArtSrc) : null,
@@ -204,20 +239,22 @@
     rateRaf = requestAnimationFrame(step);
   });
 
-  // Tonearm angle: 0deg = rest, playing = lerp(21, 34, progress), paused = playing - 4.5
-  const clampedProgress = $derived(Math.min(1, Math.max(0, progress)));
-  const playingAngle = $derived(21 + 13 * clampedProgress);
-  const armAngle = $derived(
-    !isOut ? 0 : isPaused ? playingAngle - 4.5 : playingAngle,
+  const tonearm = $derived(
+    computeTonearmPose({
+      spotifyRunning,
+      playback,
+      progress,
+      hovered: deckHovered,
+    }),
   );
   const armTransition = $derived(
     reducedMotion
       ? "none"
-      : !isOut
-        ? "transform 0.7s ease-in-out, filter 0.3s ease-out"
-        : isPaused
-          ? "transform 0.2s ease-out, filter 0.2s ease-out"
-          : "transform 0.25s ease-out, filter 0.2s ease-out",
+      : tonearm.transition === "hover"
+        ? "transform 0.22s ease-out, filter 0.22s ease-out"
+        : tonearm.transition === "rest"
+          ? "transform 0.45s ease-in-out, filter 0.3s ease-out"
+          : "transform 0.35s ease-out, filter 0.25s ease-out",
   );
 </script>
 
@@ -228,14 +265,18 @@
     class:no-motion={reducedMotion}
   >
     <button
+      bind:this={recordEl}
       type="button"
       class="record-hit"
       data-drag-handle
-      class:interactive={spotifyRunning && songUrl !== null}
-      disabled={!spotifyRunning || songUrl === null}
-      tabindex={spotifyRunning && songUrl !== null ? 0 : -1}
-      aria-label={trackTitle ? `Open song ${trackTitle} on Spotify` : "Open song on Spotify"}
-      onclick={() => openExternal(songUrl)}
+      tabindex={-1}
+      aria-label={deckAriaLabel}
+      aria-pressed={spotifyRunning ? isPlaying : undefined}
+      onpointerenter={() => {
+        recordHovered = true;
+      }}
+      onpointerleave={onRecordLeave}
+      onclick={handleDeckClick}
     >
       <div class="record-spin" bind:this={spinningEl}>
         {#if prevRecordSrc}
@@ -257,44 +298,23 @@
         {/if}
       </div>
       <div class="record-rim-light"></div>
-      {#if spotifyRunning && songUrl !== null}
-        <span class="hover-scrim record-scrim" class:no-motion={reducedMotion} aria-hidden="true">
-          <span class="scrim-glyph record-glyph">
-            <svg class="scrim-icon" width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M9 18V6l11-2v12"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-              <circle cx="6.5" cy="18" r="2.5" stroke="currentColor" stroke-width="1.8" />
-              <circle cx="17.5" cy="16" r="2.5" stroke="currentColor" stroke-width="1.8" />
-            </svg>
-            <svg class="scrim-icon scrim-arrow" width="15" height="15" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M5 11L11.5 4.5M6.5 4.5H11.5V9.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </span>
-        </span>
-      {/if}
     </button>
   </div>
 
   <button
+    bind:this={sleeveEl}
     type="button"
     class="sleeve"
     data-drag-handle
-    class:interactive={spotifyRunning && albumUrl !== null}
-    disabled={!spotifyRunning || albumUrl === null}
-    tabindex={spotifyRunning && albumUrl !== null ? 0 : -1}
-    aria-label={albumName ? `Open album ${albumName} on Spotify` : "Open album on Spotify"}
-    onclick={() => openExternal(albumUrl)}
+    aria-label={deckAriaLabel}
+    aria-pressed={spotifyRunning ? isPlaying : undefined}
+    onpointerenter={() => {
+      sleeveHovered = true;
+    }}
+    onpointerleave={onSleeveLeave}
+    onfocus={onSleeveFocus}
+    onblur={onSleeveBlur}
+    onclick={handleDeckClick}
   >
     {#if prevSleeveSrc}
       <img
@@ -317,39 +337,23 @@
     {:else}
       <div class="sleeve-blank"></div>
     {/if}
-    {#if spotifyRunning && albumUrl !== null}
-      <span class="hover-scrim sleeve-scrim" class:no-motion={reducedMotion} aria-hidden="true">
-        <span class="scrim-glyph">
-          <svg class="scrim-icon" width="26" height="26" viewBox="0 0 28 28" fill="none">
-            <rect
-              x="4"
-              y="5"
-              width="16"
-              height="18"
-              rx="1.5"
-              stroke="currentColor"
-              stroke-width="1.8"
-            />
-            <path
-              d="M20 8.5a5.5 5.5 0 0 1 0 11"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-            />
-            <circle cx="12" cy="14" r="2.5" stroke="currentColor" stroke-width="1.6" />
-          </svg>
-          <svg class="scrim-icon scrim-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M5 11L11.5 4.5M6.5 4.5H11.5V9.5"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </span>
-      </span>
-    {/if}
+    <span
+      class="deck-scrim"
+      class:visible={deckHovered}
+      class:no-motion={reducedMotion}
+      aria-hidden="true"
+    >
+      {#if isPlaying}
+        <svg class="scrim-glyph" viewBox="0 0 18 20" aria-hidden="true">
+          <rect x="2" y="1" width="5" height="18" rx="1" fill="currentColor" />
+          <rect x="11" y="1" width="5" height="18" rx="1" fill="currentColor" />
+        </svg>
+      {:else}
+        <svg class="scrim-glyph" viewBox="0 0 18 20" aria-hidden="true">
+          <polygon points="3.5,1 17,10 3.5,19" fill="currentColor" />
+        </svg>
+      {/if}
+    </span>
   </button>
 
   <svg
@@ -385,12 +389,12 @@
     <!-- Rotating arm + headshell around pivot (338, 26) -->
     <g
       class="tonearm-arm"
-      class:lifted={isPaused}
+      class:lifted={tonearm.lifted}
       style="
         transform-origin: 338px 26px;
-        transform: {isPaused
-          ? `translate(3px, -3px) rotate(${armAngle}deg)`
-          : `rotate(${armAngle}deg)`};
+        transform: {tonearm.lifted
+          ? `translate(2.5px, -2.5px) rotate(${tonearm.angleDeg}deg)`
+          : `rotate(${tonearm.angleDeg}deg)`};
         transition: {armTransition};
       "
     >
@@ -457,13 +461,9 @@
     border: 0;
     border-radius: 50%;
     background: transparent;
-    pointer-events: none;
-    display: block;
-  }
-
-  .record-hit.interactive {
     pointer-events: auto;
     cursor: pointer;
+    display: block;
   }
 
   .record-spin {
@@ -552,65 +552,8 @@
     box-shadow: 6px 8px 14px rgba(0, 0, 0, 0.7);
     overflow: hidden;
     background: #2b2621;
-    pointer-events: none;
-  }
-
-  .sleeve.interactive {
     pointer-events: auto;
     cursor: pointer;
-  }
-
-  .hover-scrim {
-    position: absolute;
-    inset: 0;
-    z-index: 5;
-    background: rgba(54, 51, 48, 0.56);
-    color: rgba(237, 228, 212, 0.92);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 150ms ease;
-  }
-
-  .hover-scrim.no-motion {
-    transition: none;
-  }
-
-  .sleeve-scrim {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .record-scrim {
-    border-radius: 50%;
-  }
-
-  .scrim-glyph {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .scrim-icon {
-    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.65));
-  }
-
-  .scrim-arrow {
-    opacity: 0.9;
-  }
-
-  .record-glyph {
-    position: absolute;
-    right: 24px;
-    top: 50%;
-    transform: translateY(-50%);
-  }
-
-  .sleeve.interactive:hover .sleeve-scrim,
-  .sleeve.interactive:focus-visible .sleeve-scrim,
-  .record-hit.interactive:hover .record-scrim,
-  .record-hit.interactive:focus-visible .record-scrim {
-    opacity: 1;
   }
 
   .sleeve-img {
@@ -635,6 +578,34 @@
     height: 100%;
     background: radial-gradient(circle at 48% 52%, #312b25 0%, #26211d 70%, #201c18 100%);
     box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.35);
+  }
+
+  .deck-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(24, 21, 18, 0.34);
+    color: rgba(237, 228, 212, 0.94);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms ease;
+  }
+
+  .deck-scrim.visible {
+    opacity: 1;
+  }
+
+  .deck-scrim.no-motion {
+    transition: none;
+  }
+
+  .scrim-glyph {
+    width: 34px;
+    height: 38px;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.65));
   }
 
   .tonearm-layer {
@@ -691,14 +662,14 @@
     box-shadow: 3px 4px 8px rgba(0, 0, 0, 0.7);
   }
 
+  .deck.card .scrim-glyph {
+    width: 20px;
+    height: 22px;
+  }
+
   .deck.card .tonearm-layer {
     transform: scale(0.42);
     transform-origin: 0 0;
-  }
-
-  .deck.card .hover-scrim,
-  .deck.strip .hover-scrim {
-    display: none;
   }
 
   .deck.strip {
@@ -746,6 +717,11 @@
     width: 26px;
     height: 26px;
     box-shadow: 1px 2px 3px rgba(0, 0, 0, 0.7);
+  }
+
+  .deck.strip .scrim-glyph {
+    width: 10px;
+    height: 11px;
   }
 
   .deck.strip .tonearm-layer {
