@@ -41,8 +41,6 @@
   let sleeveHovered = $state(false);
   let recordHovered = $state(false);
   let deckFocused = $state(false);
-  /** Suppresses the hover preview right after a click so pausing swings cleanly to rest. */
-  let hoverSuppressed = $state(false);
 
   let activeSleeveSrc = $state<string | null>(null);
   let prevSleeveSrc = $state<string | null>(null);
@@ -58,7 +56,7 @@
 
   const isOut = $derived(spotifyRunning && playback !== "stopped");
   const isPlaying = $derived(spotifyRunning && playback === "playing");
-  const deckHovered = $derived((sleeveHovered || recordHovered || deckFocused) && !hoverSuppressed);
+  const deckHovered = $derived(sleeveHovered || recordHovered || deckFocused);
   const deckAriaLabel = $derived(
     !spotifyRunning ? "Open Spotify" : isPlaying ? "Pause" : "Play",
   );
@@ -69,7 +67,6 @@
   }
 
   function handleDeckClick(): void {
-    hoverSuppressed = true;
     if (spotifyRunning) onPlayPause();
     else onOpenSpotify();
   }
@@ -78,7 +75,6 @@
     sleeveHovered = false;
     if (!isDeckTarget(event.relatedTarget)) {
       recordHovered = false;
-      hoverSuppressed = false;
     }
   }
 
@@ -86,7 +82,6 @@
     recordHovered = false;
     if (!isDeckTarget(event.relatedTarget)) {
       sleeveHovered = false;
-      hoverSuppressed = false;
     }
   }
 
@@ -94,15 +89,11 @@
     const el = event.currentTarget as HTMLElement;
     if (el.matches(":focus-visible")) {
       deckFocused = true;
-      hoverSuppressed = false;
     }
   }
 
   function onSleeveBlur(): void {
     deckFocused = false;
-    if (!sleeveHovered && !recordHovered) {
-      hoverSuppressed = false;
-    }
   }
 
   const effectiveSleeveSrc = $derived(
